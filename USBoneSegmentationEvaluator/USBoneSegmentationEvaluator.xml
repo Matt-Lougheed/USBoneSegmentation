@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<executable>
+  <category>USBoneSegmentation</category>
+  <title>USBoneSegmentationEvaluator</title>
+  <description><![CDATA[This is a CLI module to evaluate the performance of a segmentation algorithm based on true positive and false negative metrics]]></description>
+  <version>0.0.1</version>
+  <documentation-url>http://www.example.com/Slicer/Modules/BoneSegmentationEvaluator</documentation-url>
+  <license>Slicer</license>
+  <contributor>Matt Lougheed (Queen's University)</contributor>
+  <acknowledgements></acknowledgements>
+  <parameters>
+    <label>Input</label>
+    <description><![CDATA[Input/output parameters]]></description>
+    <image>
+      <name>truePositiveGroundTruthVolume</name>
+      <label>True positive ground truth volume</label>
+      <channel>input</channel>
+      <index>0</index>
+      <description><![CDATA[True positive ground truth volume]]></description>
+    </image>
+	<image>
+      <name>falseNegativeGroundTruthVolume</name>
+      <label>False negative ground truth volume</label>
+      <channel>input</channel>
+      <index>1</index>
+      <description><![CDATA[False negative ground truth volume]]></description>
+    </image>
+	<double>
+	  <name>dilateValue</name>
+	  <label>Dilation value</label>
+	  <channel>input</channel>
+	  <index>2</index>
+	  <description><![CDATA[Dilation value for false negative volume]]></description>
+	</double>
+    <image>
+      <name>segmentedVolume</name>
+      <label>Segmented volume</label>
+      <channel>input</channel>
+      <index>3</index>
+      <description><![CDATA[Segmented volume]]></description>
+    </image>
+  </parameters>
+  <parameters>
+	<label>Output</label>
+	<float>
+	  <name>falseNegativePercentage</name>
+	  <label>False negative percentage</label>
+	  <description><![CDATA[False negative percentage output]]></description>
+	  <channel>output</channel>
+	</float>
+	<float>
+	  <name>truePositivePercentage</name>
+	  <label>True positive percentage</label>
+	  <description><![CDATA[True positive percentage output]]></description>
+	  <channel>output</channel>
+	</float>
+	<integer>
+	  <name>bestTruePositiveFrameNumber</name>
+	  <label>Best true positive frame number</label>
+	  <description><![CDATA[The frame number which had the best performance for the true positive metric]]></description>
+	  <channel>output</channel>
+	</integer>
+	<integer>
+	  <name>worstTruePositiveFrameNumber</name>
+	  <label>Worst true positive frame number</label>
+	  <description><![CDATA[The frame number which had the worst performance for the true positive metric]]></description>
+	  <channel>output</channel>
+	</integer>
+	<integer>
+	  <name>bestFalseNegativeFrameNumber</name>
+	  <label>Best false negative frame number</label>
+	  <description><![CDATA[The frame number which had the best performance for the false negative metric]]></description>
+	  <channel>output</channel>
+	</integer>
+	<integer>
+	  <name>worstFalseNegativeFrameNumber</name>
+	  <label>Worst false negative frame number</label>
+	  <description><![CDATA[The frame number which had the worst performance for the false negative metric]]></description>
+	  <channel>output</channel>
+	</integer>
+	<float>
+	  <name>falseNegativeSTD</name>
+	  <label>False negative average standard deviation</label>
+	  <description><![CDATA[The standard deviation of average false negative percentage]]></description>
+	  <channel>output</channel>
+	</float>
+	<float>
+	  <name>truePositiveSTD</name>
+	  <label>True positive average standard deviation</label>
+	  <description><![CDATA[The standard deviation of averate true positive percentage]]></description>
+	  <channel>output</channel>
+	</float>
+  </parameters>
+</executable>
