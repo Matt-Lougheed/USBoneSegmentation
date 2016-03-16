@@ -1,13 +1,12 @@
 #include "USBoneSegmentationEvaluatorCLP.h"
 #include "itkPluginUtilities.h"
-#include "itkBinaryBallStructuringElement.h"
 #include "itkFlatStructuringElement.h"
 #include "itkImage.h"
 #include "itkBinaryDilateImageFilter.h"
 #include "itkImageFileReader.h"
 #include "itkImageFileWriter.h"
-#include "itkImageRegionIteratorWithIndex.h"
-#include "itkIndex.h"
+#include "itkMaskImageFilter.h"
+#include "itkImageToHistogramFilter.h"
 
 #include <time.h>
 #include <vector>
@@ -30,37 +29,37 @@ int DoIt( int argc, char * argv[], T )
   typedef itk::ImageFileReader<ImageType> ReaderType;
   typedef itk::ImageRegionIteratorWithIndex<ImageType> IteratorType;
 
-  ReaderType::Pointer reader1 = ReaderType::New();
-  ReaderType::Pointer reader2 = ReaderType::New();
-  ReaderType::Pointer reader3 = ReaderType::New();
-  ReaderType::Pointer reader4 = ReaderType::New();
+  typename ReaderType::Pointer segmentationReader = ReaderType::New();
+  typename ReaderType::Pointer truePositiveReader = ReaderType::New();
+  typename ReaderType::Pointer dilatedSegmentationReader = ReaderType::New();
+  typename ReaderType::Pointer falseNegativeReader = ReaderType::New();
 
   // Timing
   time_t start,end;
   time(&start);
 
-  // Get iterator for segmented meta image
-  reader1->SetFileName(segmentedVolume.c_str());
-  reader1->Update();
-  ImageType::Pointer segmentedVolumeImage = reader1->GetOutput();
+  // Read in segmented meta image
+  segmentationReader->SetFileName(segmentedVolume.c_str());
+  segmentationReader->Update();
+  typename ImageType::Pointer segmentedImage = segmentationReader->GetOutput();
 
-  // Get iterator for true positive verification meta image
-  reader2->SetFileName(truePositiveGroundTruthVolume.c_str());
-  reader2->Update();
-  ImageType::Pointer truePositiveImage = reader2->GetOutput();
-  
-  // Get iterator for false negative verification meta image
-  reader4->SetFileName(falseNegativeGroundTruthVolume.c_str());
-  reader4->Update();
-  ImageType::Pointer falseNegativeImage = reader4->GetOutput();
-  
-  // For checking the sizes of each image, need to be the same
-  ImageType::RegionType segmentedRegion = segmentedVolumeImage->GetLargestPossibleRegion();
-  ImageType::RegionType truePositiveRegion = truePositiveImage->GetLargestPossibleRegion();
-  ImageType::RegionType falseNegativeRegion = falseNegativeImage->GetLargestPossibleRegion();
-  ImageType::SizeType segmentedSize = segmentedRegion.GetSize();
-  ImageType::SizeType truePositiveSize = truePositiveRegion.GetSize();
-  ImageType::SizeType falseNegativeSize = falseNegativeRegion.GetSize();
+  // Read in true positive verification meta image
+  truePositiveReader->SetFileName(truePositiveGroundTruthVolume.c_str());
+  truePositiveReader->Update();
+  typename ImageType::Pointer truePositiveImage = truePositiveReader->GetOutput();
+
+  // Read in false negative verification meta image
+  falseNegativeReader->SetFileName(falseNegativeGroundTruthVolume.c_str());
+  falseNegativeReader->Update();
+  typename ImageType::Pointer falseNegativeImage = falseNegativeReader->GetOutput();
+
+  // Check that each volume has the same dimensions
+  typename ImageType::RegionType segmentedRegion = segmentedImage->GetLargestPossibleRegion();
+  typename ImageType::RegionType truePositiveRegion = truePositiveImage->GetLargestPossibleRegion();
+  typename ImageType::RegionType falseNegativeRegion = falseNegativeImage->GetLargestPossibleRegion();
+  typename ImageType::SizeType segmentedSize = segmentedRegion.GetSize();
+  typename ImageType::SizeType truePositiveSize = truePositiveRegion.GetSize();
+  typename ImageType::SizeType falseNegativeSize = falseNegativeRegion.GetSize();
 
   if (!(segmentedSize[0] == truePositiveSize[0] && segmentedSize[0] == falseNegativeSize[0] &&
       segmentedSize[1] == truePositiveSize[1] && segmentedSize[1] == falseNegativeSize[1] &&
@@ -68,10 +67,10 @@ int DoIt( int argc, char * argv[], T )
   {
     return EXIT_FAILURE;
   }
-  
+
   // Iterator for segmented meta image dilation
-  reader3->SetFileName(segmentedVolume.c_str());
-  reader3->Update();
+  dilatedSegmentationReader->SetFileName(segmentedVolume.c_str());
+  dilatedSegmentationReader->Update();
 
   // Use cross structure for dilation
   typedef itk::FlatStructuringElement<3> StructElementType;
@@ -86,215 +85,106 @@ int DoIt( int argc, char * argv[], T )
   // Dilate the algorithms segmentation
   typedef itk::BinaryDilateImageFilter<ImageType, ImageType, StructElementType>
     BinaryDilateImageFilterType;
-  BinaryDilateImageFilterType::Pointer dilateFilter =
+  typename BinaryDilateImageFilterType::Pointer dilateFilter =
     BinaryDilateImageFilterType::New();
-  dilateFilter->SetInput(reader3->GetOutput());
+  dilateFilter->SetInput(dilatedSegmentationReader->GetOutput());
   dilateFilter->SetKernel(structuringElement);
   dilateFilter->SetDilateValue(1);
   dilateFilter->Update();
-  ImageType::Pointer dilatedImage = ImageType::New();
+  typename ImageType::Pointer dilatedImage = ImageType::New();
   dilatedImage = dilateFilter->GetOutput();
 
-  // Values for the entire volume
-  int expectedPoints = 0;
-  int falseNegative = 0;
-  int segCount = 0;
-  int truePositive = 0;
+  // Mask false negative line with dilated segmentation line
+  typedef itk::MaskImageFilter<ImageType, ImageType> MaskFilterType;
+  typename MaskFilterType::Pointer falseNegativeMaskFilter = MaskFilterType::New();
+  falseNegativeMaskFilter->SetInput(falseNegativeReader->GetOutput());
+  falseNegativeMaskFilter->SetMaskImage(dilateFilter->GetOutput());
+  falseNegativeMaskFilter->Update();
+  typename ImageType::Pointer falseNegativeMaskImage = falseNegativeMaskFilter->GetOutput();
+  falseNegativeMaskImage->DisconnectPipeline();
 
-  // Values for the current frame
-  int currentFrameTruePositiveCount = 0;
-  int currentFrameFalseNegativeCount = 0;
-  int currentFrameExpectedCount = 0;
-  int currentFrameSegmentationCount = 0;
+  // Mask segmentation with true positive region
+  typename MaskFilterType::Pointer truePositiveMaskFilter = MaskFilterType::New();
+  truePositiveMaskFilter->SetInput(segmentationReader->GetOutput());
+  truePositiveMaskFilter->SetMaskImage(truePositiveReader->GetOutput());
+  truePositiveMaskFilter->Update();
+  typename ImageType::Pointer truePositiveMaskImage = truePositiveMaskFilter->GetOutput();
 
-  // Percentages for the current frame / best & worst overall
-  float currentFalseNegativePercentage = 0;
-  float currentTruePositivePercentage = 0;
-  float worstFalseNegativePercentage = 0;
-  float bestFalseNegativePercentage = 100;
-  float bestTruePositivePercentage = 0;
-  float worstTruePositivePercentage = 100;
+  // Image list to iterate for computing histogram / statistics
+  std::list<typename ImageType::Pointer> imageList;
+  imageList.push_back(segmentedImage);
+  imageList.push_back(falseNegativeImage);
+  imageList.push_back(dilatedImage);
+  imageList.push_back(falseNegativeMaskImage);
+  imageList.push_back(truePositiveMaskImage);
 
-  // For determining when a new frame is reached meaning per frame calculations have to be done
-  itk::Index<3> currentIndex;
-  currentIndex[0] = currentIndex[1] = currentIndex[2] = 0;
+  // List to hold pixel counts
+  std::vector<int> pixelCounts;
 
-  // Arrays for holding invidividual frame values
-  std::vector<double> falseNegativePercentageArray (segmentedSize[2]);
-  std::vector<double>  truePositivePercentageArray (segmentedSize[2]);
+  // Setup histogram filter to calculate pixel intensity counts
+  typedef itk::Statistics::ImageToHistogramFilter<ImageType>
+      ImageToHistogramFilterType;
+  const unsigned int MeasurementVectorSize = 1;
+  const unsigned int numberOfBins = 256;
+  typename ImageToHistogramFilterType::HistogramType::MeasurementVectorType
+      lowerBound(numberOfBins);
+  lowerBound.Fill(0);
+  typename ImageToHistogramFilterType::HistogramType::MeasurementVectorType
+      upperBound(numberOfBins);
+  upperBound.Fill(255);
+  typename ImageToHistogramFilterType::HistogramType::SizeType
+      size(MeasurementVectorSize);
+  size.Fill(numberOfBins);
+  typename ImageToHistogramFilterType::Pointer imageToHistogramFilter =
+      ImageToHistogramFilterType::New();
+  imageToHistogramFilter->SetHistogramBinMinimum(lowerBound);
+  imageToHistogramFilter->SetHistogramBinMaximum(upperBound);
+  imageToHistogramFilter->SetHistogramSize(size);
 
-  // Iterators for the volumes
-  IteratorType iterator1(segmentedVolumeImage, segmentedVolumeImage->GetRequestedRegion());
-  IteratorType iterator2(truePositiveImage, truePositiveImage->GetRequestedRegion());
-  IteratorType iterator3(dilatedImage, dilatedImage->GetRequestedRegion());
-  IteratorType iterator4(falseNegativeImage, falseNegativeImage->GetRequestedRegion());
-
-  while(!iterator1.IsAtEnd())
+  // Iterate over each image and compute pixel count
+  typename ImageToHistogramFilterType::HistogramType* histogram;
+  typename ImageType::Pointer currentImage;
+  for (typename std::list<typename ImageType::Pointer>::iterator it = imageList.begin();
+       it != imageList.end();
+       it++)
   {
-    unsigned char segmentPixel = iterator1.Get();
-    unsigned char truePositivePixel = iterator2.Get();
-    unsigned char falseNegativePixel = iterator4.Get();
-    unsigned char dilatedPixel = iterator3.Get();
-
-    // New Frame, so calculate the statistics for the recently iterated frame
-    if (iterator1.GetIndex()[2] != currentIndex[2])
-    {
-      // False negative & false positive calculation
-      currentFalseNegativePercentage = (float)currentFrameFalseNegativeCount/(float)currentFrameExpectedCount * 100;
-      falseNegativePercentageArray[currentIndex[2]] = currentFalseNegativePercentage;
-      
-      currentTruePositivePercentage = (float)currentFrameTruePositiveCount/(float)currentFrameSegmentationCount * 100;
-      truePositivePercentageArray[currentIndex[2]] = currentTruePositivePercentage;
-
-      // If the recently iterated frame has a higher false negative percentage, save the frame # and value
-      if (currentFalseNegativePercentage > worstFalseNegativePercentage)
-      {
-	worstFalseNegativePercentage = currentFalseNegativePercentage;
-	worstFalseNegativeFrameNumber = currentIndex[2];
-      }
-      if (currentFalseNegativePercentage < bestFalseNegativePercentage)
-      {
-	bestFalseNegativePercentage = currentFalseNegativePercentage;
-	bestFalseNegativeFrameNumber = currentIndex[2];
-      }
-
-      // If the recently iterated frame has a higher true positive percentage, save the frame # and vaslue
-      if (currentTruePositivePercentage > bestTruePositivePercentage)
-      {
-	bestTruePositivePercentage = currentTruePositivePercentage;
-	bestTruePositiveFrameNumber = currentIndex[2];
-      }
-      if (currentTruePositivePercentage < worstTruePositivePercentage)
-      {
-	worstTruePositivePercentage = currentTruePositivePercentage;
-	worstTruePositiveFrameNumber = currentIndex[2];
-      }
-
-      // Reset values for next frame calculation
-      currentFrameExpectedCount = 0;
-      currentFrameFalseNegativeCount = 0;
-      currentFrameTruePositiveCount = 0;
-      currentFrameSegmentationCount = 0;
-    }
-      
-    // If the current pixel was set in the false negative test line
-    if (falseNegativePixel != 0)
-    {
-      // Increment total/frame expected counts
-      expectedPoints++;
-      currentFrameExpectedCount++;
-      // If the dilated segmentation was not set then it is a false negative
-      if (dilatedPixel == 0)
-      {
-	// Increment total/frame false negative counts
-        falseNegative++;
-	currentFrameFalseNegativeCount++;
-      }
-    }
-
-    // If the current pixel was set in the segmentation
-    if (segmentPixel != 0)
-    {
-      // Increment the total/frame segmentation counts
-      segCount++;
-      currentFrameSegmentationCount++;
-      // If the true positive test region was set then it is a true positive
-      if (truePositivePixel != 0)
-      {
-	// Increment the total/frame true positive counts
-        truePositive++;
-	currentFrameTruePositiveCount++;
-      }
-    }
-
-    currentIndex = iterator1.GetIndex(); // Set the index for the pixel iterated (for checking if the next pixel is in a new frame)
-    // Iterate to next pixel for each image
-    ++iterator1;
-    ++iterator2;
-    ++iterator3;
-    ++iterator4;
-  } // End while loop
-
-  // Calculate last frame which isn't done in loop
-  // False negative & false positive calculation
-  currentFalseNegativePercentage = (float)currentFrameFalseNegativeCount/(float)currentFrameExpectedCount * 100;
-  falseNegativePercentageArray[currentIndex[2]] = currentFalseNegativePercentage;
-
-  currentTruePositivePercentage = (float)currentFrameTruePositiveCount/(float)currentFrameSegmentationCount * 100;
-  truePositivePercentageArray[currentIndex[2]] = currentTruePositivePercentage;
-
-  // If the recently iterated frame has a higher false negative percentage, save the frame # and value
-  if (currentFalseNegativePercentage > worstFalseNegativePercentage)
-  {
-    worstFalseNegativePercentage = currentFalseNegativePercentage;
-    worstFalseNegativeFrameNumber = currentIndex[2];
-  }
-  if (currentFalseNegativePercentage < bestFalseNegativePercentage)
-  {
-    bestFalseNegativePercentage = currentFalseNegativePercentage;
-    bestFalseNegativeFrameNumber = currentIndex[2];
+      currentImage = *it;
+      imageToHistogramFilter->SetInput(currentImage);
+      imageToHistogramFilter->Update();
+      histogram = imageToHistogramFilter->GetOutput();
+      pixelCounts.push_back(histogram->GetFrequency(255));
   }
 
-  // If the recently iterated frame has a higher true positive percentage, save the frame # and vaslue
-  if (currentTruePositivePercentage > bestTruePositivePercentage)
-  {
-    bestTruePositivePercentage = currentTruePositivePercentage;
-    bestTruePositiveFrameNumber = currentIndex[2];
-  }
-  if (currentTruePositivePercentage < worstTruePositivePercentage)
-  {
-    worstTruePositivePercentage = currentTruePositivePercentage;
-    worstTruePositiveFrameNumber = currentIndex[2];
-  }
-  
-  // Calculate metrics for total volume
-  falseNegativePercentage = (float)falseNegative/(float)expectedPoints * 100;
-  truePositivePercentage = truePositive/(float)segCount * 100;
+  // Note: these values are dependent on the order of images in previous for loop
+  int totalSegmentationVoxelCount = pixelCounts[0];
+  int totalFalseNegativeLineCount = pixelCounts[1];
+  int totalDilatedVoxelCount = pixelCounts[2];
+  int falseNegativeOverlapCount = pixelCounts[3];
+  int truePositiveOverlapCount = pixelCounts[4];
 
-  int sumFalseNegatives = 0;
-  int sumTruePositives = 0;
-  for (int i = 0; i < segmentedSize[2]; i++)
-  {
-    sumFalseNegatives += falseNegativePercentageArray[i];
-    sumTruePositives += truePositivePercentageArray[i];
-  }
+  std::cout << "totalFalseNegativeLineCount: " << totalFalseNegativeLineCount << std::endl;
+  std::cout << "totalSegmentationVoxelCount: " << totalSegmentationVoxelCount << std::endl;
+  std::cout << "totalDilatedVoxelCount: " << totalDilatedVoxelCount << std::endl;
+  std::cout << "falseNegativeOverlapCount: " << falseNegativeOverlapCount << std::endl;
+  std::cout << "truePositiveOverlapCount: " << truePositiveOverlapCount << std::endl;
 
-  // Calculate averages
-  double averageFalseNegatives = (double)sumFalseNegatives/segmentedSize[2];
-  double averageTruePositives = (double)sumTruePositives/segmentedSize[2];
+    // Calculate metrics for total volume
+  falseNegativePercentage =
+      (float)falseNegativeOverlapCount/(float)totalFalseNegativeLineCount * 100;
+  truePositivePercentage =
+      truePositiveOverlapCount/(float)totalSegmentationVoxelCount * 100;
 
-  // Calculate variance
-  double sumOfSquaresFalseNegative = 0;
-  double sumOfSquaresTruePositive = 0;
-  for (int i = 0; i < segmentedSize[2]; i++)
-  {
-    sumOfSquaresFalseNegative += std::pow((falseNegativePercentageArray[i] - averageFalseNegatives),2);
-    sumOfSquaresTruePositive += std::pow((truePositivePercentageArray[i] - averageTruePositives),2);
-  }
-  double falseNegativeVariance = sumOfSquaresFalseNegative/segmentedSize[2];
-  double truePositiveVariance = sumOfSquaresTruePositive/segmentedSize[2];
-
-  //Calculate standard deviations
-  falseNegativeSTD = std::sqrt(falseNegativeVariance);
-  truePositiveSTD = std::sqrt(truePositiveVariance);
-  
   // Write module output values
   std::ofstream rts;
   rts.open(returnParameterFile.c_str());
   rts << "falseNegativePercentage = " << falseNegativePercentage << std::endl;
   rts << "truePositivePercentage = " << truePositivePercentage << std::endl;
-  rts << "bestTruePositiveFrameNumber = " << bestTruePositiveFrameNumber << std::endl;
-  rts << "worstTruePositiveFrameNumber = " << worstTruePositiveFrameNumber << std::endl;
-  rts << "bestFalseNegativeFrameNumber = " << bestFalseNegativeFrameNumber << std::endl;
-  rts << "worstFalseNegativeFrameNumber = " << worstFalseNegativeFrameNumber << std::endl;
-  rts << "falseNegativeSTD = " << falseNegativeSTD << std::endl;
-  rts << "truePositiveSTD = " << truePositiveSTD << std::endl;
   rts.close();
-  
+
   time(&end);
   double dif = difftime(end,start);
   std::cout << "Time to run: " << dif << std::endl;
-  
+
   return EXIT_SUCCESS;
 }
 

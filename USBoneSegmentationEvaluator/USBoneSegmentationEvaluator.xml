@@ -54,6 +54,7 @@
 	  <description><![CDATA[True positive percentage output]]></description>
 	  <channel>output</channel>
 	</float>
+	<!--
 	<integer>
 	  <name>bestTruePositiveFrameNumber</name>
 	  <label>Best true positive frame number</label>
@@ -90,5 +91,6 @@
 	  <description><![CDATA[The standard deviation of averate true positive percentage]]></description>
 	  <channel>output</channel>
 	</float>
+	  -->
   </parameters>
 </executable>
