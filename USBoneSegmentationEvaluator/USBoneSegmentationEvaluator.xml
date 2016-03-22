@@ -25,13 +25,13 @@
       <index>1</index>
       <description><![CDATA[False negative ground truth volume]]></description>
     </image>
-	<double>
-	  <name>dilateValue</name>
-	  <label>Dilation value</label>
-	  <channel>input</channel>
-	  <index>2</index>
-	  <description><![CDATA[Dilation value for false negative volume]]></description>
-	</double>
+    <double>
+      <name>dilateValue</name>
+      <label>Dilation value</label>
+      <channel>input</channel>
+      <index>2</index>
+      <description><![CDATA[Dilation value for false negative volume]]></description>
+    </double>
     <image>
       <name>segmentedVolume</name>
       <label>Segmented volume</label>
