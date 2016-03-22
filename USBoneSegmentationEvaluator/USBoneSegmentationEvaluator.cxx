@@ -38,10 +38,6 @@ int DoIt( int argc, char * argv[], T )
   time_t start,end;
   time(&start);
 
-  std::cout << "Segmented volume: " << segmentedVolume << std::endl;
-  std::cout << "False negative volume: " << falseNegativeGroundTruthVolume << std::endl;
-  std::cout << "True positive volume: " << truePositiveGroundTruthVolume << std::endl;
-
   // Read in segmented meta image
   segmentationReader->SetFileName(segmentedVolume.c_str());
   try
@@ -190,12 +186,6 @@ int DoIt( int argc, char * argv[], T )
   int totalDilatedVoxelCount = pixelCounts[2];
   int falseNegativeOverlapCount = pixelCounts[3];
   int truePositiveOverlapCount = pixelCounts[4];
-
-  std::cout << "totalFalseNegativeLineCount: " << totalFalseNegativeLineCount << std::endl;
-  std::cout << "totalSegmentationVoxelCount: " << totalSegmentationVoxelCount << std::endl;
-  std::cout << "totalDilatedVoxelCount: " << totalDilatedVoxelCount << std::endl;
-  std::cout << "falseNegativeOverlapCount: " << falseNegativeOverlapCount << std::endl;
-  std::cout << "truePositiveOverlapCount: " << truePositiveOverlapCount << std::endl;
 
     // Calculate metrics for total volume
   falseNegativePercentage =
