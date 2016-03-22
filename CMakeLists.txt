@@ -16,6 +16,7 @@ include(${Slicer_USE_FILE})
 
 #-----------------------------------------------------------------------------
 add_subdirectory(USBoneSegmentationEvaluator)
+add_subdirectory(USBoneSegmentationEvaluator_Scripted)
 
 #-----------------------------------------------------------------------------
 include(${Slicer_EXTENSION_CPACK})
