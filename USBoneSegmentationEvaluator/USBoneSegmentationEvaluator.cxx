@@ -38,19 +38,48 @@ int DoIt( int argc, char * argv[], T )
   time_t start,end;
   time(&start);
 
+  std::cout << "Segmented volume: " << segmentedVolume << std::endl;
+  std::cout << "False negative volume: " << falseNegativeGroundTruthVolume << std::endl;
+  std::cout << "True positive volume: " << truePositiveGroundTruthVolume << std::endl;
+
   // Read in segmented meta image
   segmentationReader->SetFileName(segmentedVolume.c_str());
-  segmentationReader->Update();
+  try
+  {
+      segmentationReader->Update();
+  }
+  catch (itk::ExceptionObject & err)
+  {
+      std::cerr << "Error reading segmentedVolume!" << std::endl;
+      std::cerr << err << std::endl;
+  }
   typename ImageType::Pointer segmentedImage = segmentationReader->GetOutput();
 
   // Read in true positive verification meta image
   truePositiveReader->SetFileName(truePositiveGroundTruthVolume.c_str());
-  truePositiveReader->Update();
+  try
+  {
+      truePositiveReader->Update();
+  }
+  catch (itk::ExceptionObject & err)
+  {
+      std::cerr << "Error reading truePositiveGroundTruthVolume!" << std::endl;
+      std::cerr << err << std::endl;
+      return EXIT_FAILURE;
+  }
   typename ImageType::Pointer truePositiveImage = truePositiveReader->GetOutput();
 
   // Read in false negative verification meta image
   falseNegativeReader->SetFileName(falseNegativeGroundTruthVolume.c_str());
-  falseNegativeReader->Update();
+  try
+  {
+      falseNegativeReader->Update();
+  }
+  catch (itk::ExceptionObject & err)
+  {
+      std::cerr << "Error reading falseNegativeGroundTruthVolume!" << std::endl;
+      std::cerr << err << std::endl;
+  }
   typename ImageType::Pointer falseNegativeImage = falseNegativeReader->GetOutput();
 
   // Check that each volume has the same dimensions
@@ -170,7 +199,7 @@ int DoIt( int argc, char * argv[], T )
 
     // Calculate metrics for total volume
   falseNegativePercentage =
-      (float)falseNegativeOverlapCount/(float)totalFalseNegativeLineCount * 100;
+      (1 - (float)falseNegativeOverlapCount/(float)totalFalseNegativeLineCount) * 100;
   truePositivePercentage =
       truePositiveOverlapCount/(float)totalSegmentationVoxelCount * 100;
 
