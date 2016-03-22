@@ -17,17 +17,15 @@ class USBoneSegmentationEvaluator_Scripted(ScriptedLoadableModule):
   def __init__(self, parent):
     ScriptedLoadableModule.__init__(self, parent)
     self.parent.title = "USBoneSegmentationEvaluator_Scripted" # TODO make this more human readable by adding spaces
-    self.parent.categories = ["Examples"]
+    self.parent.categories = ["USBoneSegmentation"]
     self.parent.dependencies = []
     self.parent.contributors = ["Matt Lougheed (Queen's University)"] # replace with "Firstname Lastname (Organization)"
     self.parent.helpText = """
-    This is an example of scripted loadable module bundled in an extension.
-    It performs a simple thresholding on the input volume and optionally captures a screenshot.
+    This module allows for iterative calls to the USBoneSegmentationEvaluator CLI 
+    module in order to compute metrics for multiple dilation values.
     """
     self.parent.acknowledgementText = """
-    This file was originally developed by Jean-Christophe Fillion-Robin, Kitware Inc.
-    and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR013218-12S1.
-""" # replace with organization, grant and thanks.
+    """
 
 #
 # USBoneSegmentationEvaluator_ScriptedWidget
