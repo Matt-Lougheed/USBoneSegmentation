@@ -55,7 +55,7 @@ class USBoneSegmentationEvaluator_ScriptedWidget(ScriptedLoadableModuleWidget):
     # Segmentation volume selector
     #
     self.segmentationSelector = slicer.qMRMLNodeComboBox()
-    self.segmentationSelector.nodeTypes = ["vtkMRMLScalarVolumeNode"]
+    self.segmentationSelector.nodeTypes = ["vtkMRMLScalarVolumeNode", "vtkMRMLLabelMapVolumeNode"]
     self.segmentationSelector.selectNodeUponCreation = True
     self.segmentationSelector.addEnabled = False
     self.segmentationSelector.removeEnabled = False
@@ -70,7 +70,7 @@ class USBoneSegmentationEvaluator_ScriptedWidget(ScriptedLoadableModuleWidget):
     # False negative volume selector
     #
     self.falseNegativeSelector = slicer.qMRMLNodeComboBox()
-    self.falseNegativeSelector.nodeTypes = ["vtkMRMLScalarVolumeNode"]
+    self.falseNegativeSelector.nodeTypes = ["vtkMRMLScalarVolumeNode", "vtkMRMLLabelMapVolumeNode"]
     self.falseNegativeSelector.selectNodeUponCreation = True
     self.falseNegativeSelector.addEnabled = False
     self.falseNegativeSelector.removeEnabled = False
@@ -85,7 +85,7 @@ class USBoneSegmentationEvaluator_ScriptedWidget(ScriptedLoadableModuleWidget):
     # True positive volume selector
     #
     self.truePositiveSelector = slicer.qMRMLNodeComboBox()
-    self.truePositiveSelector.nodeTypes = ["vtkMRMLScalarVolumeNode"]
+    self.truePositiveSelector.nodeTypes = ["vtkMRMLScalarVolumeNode", "vtkMRMLLabelMapVolumeNode"]
     self.truePositiveSelector.selectNodeUponCreation = True
     self.truePositiveSelector.addEnabled = False
     self.truePositiveSelector.removeEnabled = False
@@ -104,14 +104,15 @@ class USBoneSegmentationEvaluator_ScriptedWidget(ScriptedLoadableModuleWidget):
     self.dilationSliderWidget.minimum = 0
     self.dilationSliderWidget.maximum = 20
     self.dilationSliderWidget.value = 5
-    self.dilationSliderWidget.setToolTip("Set threshold value for computing the output image. Voxels that have intensities lower than this value will set to zero.")
+    self.dilationSliderWidget.setToolTip("""Set the value to dilate the segmentation
+        line when calculating false negatives with respect to the false negative line.""")
     parametersFormLayout.addRow("Dilation factor", self.dilationSliderWidget)
 
     #
     # Apply Button
     #
-    self.applyButton = qt.QPushButton("Apply")
-    self.applyButton.toolTip = "Run the algorithm."
+    self.applyButton = qt.QPushButton("Run")
+    self.applyButton.toolTip = "Run the computation."
     self.applyButton.enabled = False
     parametersFormLayout.addRow(self.applyButton)
 
@@ -155,6 +156,11 @@ class USBoneSegmentationEvaluator_ScriptedLogic(ScriptedLoadableModuleLogic):
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
+  def isValidDilateValue(self, dilateValue):
+    if not dilateValue.is_integer():
+      return False
+    return True
+
   def hasImageData(self,volumeNode):
     """This is an example logic method that
     returns true if the passed in volume
@@ -188,6 +194,14 @@ class USBoneSegmentationEvaluator_ScriptedLogic(ScriptedLoadableModuleLogic):
     """
     logging.info('Processing started')
 
+    if (not self.isValidDilateValue(dilationFactor)):
+      slicer.util.errorDisplay("The dilation value must be an integer.")
+      return False
+
+    if (not self.hasImageData(segmentationVolume)):
+      slicer.util.errorDisplay("The segmentation is not valid.")
+      return False
+
     # Iteratively compute the false negative true positive metrics
     falseNegativeResults = slicer.mrmlScene.AddNode(slicer.vtkMRMLDoubleArrayNode())
     truePositiveResults = slicer.mrmlScene.AddNode(slicer.vtkMRMLDoubleArrayNode())
@@ -220,12 +234,16 @@ class USBoneSegmentationEvaluator_ScriptedLogic(ScriptedLoadableModuleLogic):
     # Create chart node and chart view node
     chartViewNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLChartViewNode())
     chartNode = slicer.mrmlScene.AddNode(slicer.vtkMRMLChartNode())
-    chartNode.AddArray('False Negative Line Coverage', falseNegativeResults.GetID())
-    chartNode.AddArray('True Positive Region Coverage', truePositiveResults.GetID())
+    chartNode.AddArray('False Negative Percentage', falseNegativeResults.GetID())
+    chartNode.AddArray('True Positive Percentage', truePositiveResults.GetID())
     chartNode.SetProperty('default', 'xAxisLabel', 'Dilation Value')
     chartNode.SetProperty('default', 'yAxisLabel', 'Percentage')
     chartNode.SetProperty('default', 'type', 'Scatter')
     chartViewNode.SetChartNodeID(chartNode.GetID())
+    chartNode.Modified()
+    chartViewNode.Modified()
+    slicer.mrmlScene.Modified()
+    layoutNode.Modified()
 
     logging.info('Processing completed')
 
