@@ -27,12 +27,14 @@ int DoIt( int argc, char * argv[], T )
 
   typedef itk::Image<T, 3> ImageType;
   typedef itk::ImageFileReader<ImageType> ReaderType;
+  typedef itk::ImageFileWriter<ImageType> WriterType;
   typedef itk::ImageRegionIteratorWithIndex<ImageType> IteratorType;
 
   typename ReaderType::Pointer segmentationReader = ReaderType::New();
   typename ReaderType::Pointer truePositiveReader = ReaderType::New();
   typename ReaderType::Pointer dilatedSegmentationReader = ReaderType::New();
   typename ReaderType::Pointer falseNegativeReader = ReaderType::New();
+  typename WriterType::Pointer writer = WriterType::New();
 
   // Timing
   time_t start,end;
@@ -118,6 +120,20 @@ int DoIt( int argc, char * argv[], T )
   dilateFilter->Update();
   typename ImageType::Pointer dilatedImage = ImageType::New();
   dilatedImage = dilateFilter->GetOutput();
+
+  // Write the dilated segmentation to output file
+  writer->SetInput(dilatedImage);
+  writer->SetFileName(outputDilatedSegmentation.c_str());
+  try
+  {
+  writer->Update();
+  }
+  catch (itk::ExceptionObject & e)
+  {
+      std::cerr << "Error while writing dilated segmentation" << std::endl;
+      std::cerr << e << std::endl;
+      return EXIT_FAILURE;
+  }
 
   // Mask false negative line with dilated segmentation line
   typedef itk::MaskImageFilter<ImageType, ImageType> MaskFilterType;

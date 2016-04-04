@@ -9,7 +9,7 @@
   <contributor>Matt Lougheed (Queen's University)</contributor>
   <acknowledgements></acknowledgements>
   <parameters>
-    <label>Input</label>
+    <label>Input/Output</label>
     <description><![CDATA[Input/output parameters]]></description>
     <image>
       <name>truePositiveGroundTruthVolume</name>
@@ -18,7 +18,7 @@
       <index>0</index>
       <description><![CDATA[True positive ground truth volume]]></description>
     </image>
-	<image>
+    <image>
       <name>falseNegativeGroundTruthVolume</name>
       <label>False negative ground truth volume</label>
       <channel>input</channel>
@@ -39,21 +39,29 @@
       <index>3</index>
       <description><![CDATA[Segmented volume]]></description>
     </image>
+    <image type="label">
+      <name>outputDilatedSegmentation</name>
+      <label>Output dilated segmentation</label>
+      <channel>output</channel>
+      <index>4</index>
+      <description><![CDATA[The dilated segmentation used for calculations]]></description>      
+    </image>
   </parameters>
   <parameters>
-	<label>Output</label>
-	<float>
-	  <name>falseNegativePercentage</name>
-	  <label>False negative percentage</label>
-	  <description><![CDATA[False negative percentage output]]></description>
-	  <channel>output</channel>
-	</float>
-	<float>
-	  <name>truePositivePercentage</name>
-	  <label>True positive percentage</label>
-	  <description><![CDATA[True positive percentage output]]></description>
-	  <channel>output</channel>
-	</float>
+    <label>Output Metrics</label>
+    <float>
+      <name>falseNegativePercentage</name>
+      <label>False negative percentage</label>
+      <description><![CDATA[False negative percentage output]]></description>
+      <channel>output</channel>
+    </float>
+    <float>
+      <name>truePositivePercentage</name>
+      <label>True positive percentage</label>
+      <description><![CDATA[True positive percentage output]]></description>
+      <channel>output</channel>
+    </float>
+  </parameters>
 	<!--
 	<integer>
 	  <name>bestTruePositiveFrameNumber</name>
@@ -92,5 +100,4 @@
 	  <channel>output</channel>
 	</float>
 	  -->
-  </parameters>
 </executable>
