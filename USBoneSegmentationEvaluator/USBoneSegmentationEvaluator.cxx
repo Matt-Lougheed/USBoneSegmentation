@@ -7,6 +7,7 @@
 #include "itkImageFileWriter.h"
 #include "itkMaskImageFilter.h"
 #include "itkImageToHistogramFilter.h"
+#include "itkHausdorffDistanceImageFilter.h"
 
 #include <time.h>
 #include <vector>
@@ -203,17 +204,25 @@ int DoIt( int argc, char * argv[], T )
   int falseNegativeOverlapCount = pixelCounts[3];
   int truePositiveOverlapCount = pixelCounts[4];
 
-    // Calculate metrics for total volume
+  // Calculate metrics for total volume
   falseNegativePercentage =
       (1 - (float)falseNegativeOverlapCount/(float)totalFalseNegativeLineCount) * 100;
   truePositivePercentage =
       truePositiveOverlapCount/(float)totalSegmentationVoxelCount * 100;
+
+  // Calculate hausdorff distance between false negative and algorithm segmentation
+  typedef itk::HausdorffDistanceImageFilter<ImageType, ImageType> FilterType;
+  typename FilterType::Pointer hausdorffFilter = FilterType::New();
+  hausdorffFilter->SetInput1(segmentationReader->GetOutput());
+  hausdorffFilter->SetInput2(falseNegativeReader->GetOutput());
+  hausdorffFilter->Update();
 
   // Write module output values
   std::ofstream rts;
   rts.open(returnParameterFile.c_str());
   rts << "falseNegativePercentage = " << falseNegativePercentage << std::endl;
   rts << "truePositivePercentage = " << truePositivePercentage << std::endl;
+  rts << "hausdorffDistance = " << hausdorffFilter->GetHausdorffDistance() << std::endl;
   rts.close();
 
   time(&end);

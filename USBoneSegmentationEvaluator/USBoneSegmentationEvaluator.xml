@@ -61,6 +61,12 @@
       <description><![CDATA[True positive percentage output]]></description>
       <channel>output</channel>
     </float>
+    <float>
+      <name>hausdorffDistance</name>
+      <label>Hausdorff Distance</label>
+      <description><![CDATA[Hausdorff distance between segmentation and false negative line]]></description>
+      <channel>output</channel>
+    </float>
   </parameters>
 	<!--
 	<integer>
