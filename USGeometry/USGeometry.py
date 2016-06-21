@@ -91,17 +91,17 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     #
     # Input volume selector
     #
-    self.algorithmSegmentationSelector = slicer.qMRMLNodeComboBox()
-    self.algorithmSegmentationSelector.nodeTypes = ["vtkMRMLLabelMapVolumeNode"]
-    self.algorithmSegmentationSelector.selectNodeUponCreation = True
-    self.algorithmSegmentationSelector.addEnabled = False
-    self.algorithmSegmentationSelector.removeEnabled = False
-    self.algorithmSegmentationSelector.noneEnabled = False
-    self.algorithmSegmentationSelector.showHidden = False
-    self.algorithmSegmentationSelector.showChildNodeTypes = False
-    self.algorithmSegmentationSelector.setMRMLScene( slicer.mrmlScene )
-    self.algorithmSegmentationSelector.setToolTip( "Pick the algorithm segmentation to evaluate." )
-    inputsFormLayout.addRow("Algorithm segmentation: ", self.algorithmSegmentationSelector)
+    self.algorithmSegmentation = slicer.qMRMLNodeComboBox()
+    self.algorithmSegmentation.nodeTypes = ["vtkMRMLLabelMapVolumeNode"]
+    self.algorithmSegmentation.selectNodeUponCreation = True
+    self.algorithmSegmentation.addEnabled = False
+    self.algorithmSegmentation.removeEnabled = False
+    self.algorithmSegmentation.noneEnabled = False
+    self.algorithmSegmentation.showHidden = False
+    self.algorithmSegmentation.showChildNodeTypes = False
+    self.algorithmSegmentation.setMRMLScene( slicer.mrmlScene )
+    self.algorithmSegmentation.setToolTip( "Pick the algorithm segmentation to evaluate." )
+    inputsFormLayout.addRow("Algorithm segmentation: ", self.algorithmSegmentation)
 
     #
     # OUTPUT VOLUMES Area
@@ -219,7 +219,7 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
 
   def onApplyButton(self):
     logic = USGeometryLogic()
-    logic.run(self.inputSelector.currentNode(), self.configFile.text, self.directory.text, self.mergedManualSegmentations.currentNode(), self.scanlines.currentNode(), self.outputSegmentation.currentNode())
+    logic.run(self.inputSelector.currentNode(), self.configFile.text, self.directory.text, self.mergedManualSegmentations.currentNode(), self.scanlines.currentNode(), self.outputSegmentation.currentNode(), self.algorithmSegmentation.currentNode(), self.truePositiveMetric)
 
 #
 # USGeometryLogic
@@ -235,7 +235,10 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
-  def run(self, inputVolume, configFileName, manualSegmentationsDirectory, mergedVolume, scanlineVolume, outputSegmentationVolume):
+  def euclidean_distance(self,point1,point2):
+      return math.sqrt((point2[0] - point1[0]) ** 2 + (point2[1] - point1[1]) ** 2 + (point2[2] - point1[2]) ** 2)
+
+  def run(self, inputVolume, configFileName, manualSegmentationsDirectory, mergedVolume, scanlineVolume, outputSegmentationVolume, algorithmSegmentationVolume, truePositiveOutput):
     """
     Run the actual algorithm
     """
@@ -290,6 +293,11 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     inputDimensions = inputImageData.GetDimensions()
     inputExtent = inputImageData.GetExtent()
 
+    # Algorithm segmentation
+    algorithmSegmentationData = algorithmSegmentationVolume.GetImageData()
+    totalAlgorithmSegmentationPoints = 0
+    pointsWithinAcceptableRegion = 0
+
     # Parse input config file
     US_Geometry = UltrasoundTransducerGeometry(configFileName)
 
@@ -315,6 +323,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
       # Compute the manual segmentation points on each scanline
       for z in range(imgDim[2]):
         print("Creating line for slice {}".format(z))
+        # Create line
         currentLine = vtk.vtkLineSource()
         currentStartPoint = [startScanline[0], startScanline[1], z]
         currentEndPoint = [endScanline[0], endScanline[1], z]
@@ -329,7 +338,9 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
         linePoints = currentLine.GetOutput()
         xVals = []
         yVals = []
+        algorithmSegmentationPoints = []
         for j in range(linePoints.GetNumberOfPoints()):
+          # TODO: Get the point from the algorithm segmentation so we can compute if it is within the required region / false negative line
           currentPoint = linePoints.GetPoint(j)
           summedSegPoint = summedImage.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0)
           if (summedSegPoint > 0):
@@ -337,6 +348,11 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
             yVals.extend([int(currentPoint[1]) for _ in range(int(summedSegPoint))])
             print("The point [{}, {}, {}] has value {}!".format(int(currentPoint[0]), int(currentPoint[1]), int(currentPoint[2]), summedSegPoint))
 
+          algorithmSegPoint = algorithmSegmentationData.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0)
+          if (algorithmSegPoint > 0):
+            print("Adding point [{} {} {}]".format(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2])))
+            algorithmSegmentationPoints.append([int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2])])
+            totalAlgorithmSegmentationPoints += 1
         # If there are points on the line, compute mean / std
         if (len(xVals) > 0):
           # Compute mean point
@@ -353,10 +369,20 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
           acceptableRegionPoint2 = [int(xMean + -toleranceFactor*stdSum * unitVector[0]), int(yMean + -toleranceFactor*stdSum * unitVector[1])]          
           outputSegmentation.SetScalarComponentFromDouble(acceptableRegionPoint1[0],acceptableRegionPoint1[1],z,0,100)
           outputSegmentation.SetScalarComponentFromDouble(acceptableRegionPoint2[0],acceptableRegionPoint2[1],z,0,100)
-
           outputSegmentationPoints.InsertNextPoint(xMean,yMean,z)
+
+          acceptableDistance = self.euclidean_distance([xMean,yMean,z],[acceptableRegionPoint1[0],acceptableRegionPoint1[1],z])
+          for currentPoint in algorithmSegmentationPoints:
+            currentDistance = self.euclidean_distance([xMean,yMean,z],currentPoint)
+            if (currentDistance < acceptableDistance):
+              pointsWithinAcceptableRegion += 1
+
       print("Finished scanline #{} processing".format(i))
 
+    print("Algorithm segmentation points: {}".format(totalAlgorithmSegmentationPoints))
+    print("Acceptable points: {}".format(pointsWithinAcceptableRegion))
+    truePositive = float(pointsWithinAcceptableRegion) / float(totalAlgorithmSegmentationPoints) * 100
+    truePositiveOutput.setText(truePositive)
     # Draw scanlines
     drawFilter.Update()
 
