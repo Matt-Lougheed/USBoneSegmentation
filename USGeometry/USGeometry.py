@@ -89,7 +89,7 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     inputsFormLayout.addRow("Manual segmentations directory: ", directoryLayout)
 
     #
-    # Input volume selector
+    # Algorithm segmentation volume selector
     #
     self.algorithmSegmentation = slicer.qMRMLNodeComboBox()
     self.algorithmSegmentation.nodeTypes = ["vtkMRMLLabelMapVolumeNode"]
@@ -218,8 +218,13 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     self.directory.setText(directoryName)
 
   def onApplyButton(self):
-    logic = USGeometryLogic()
+    logic = USGeometryLogic(self.configFile.text, self.inputSelector.currentNode())
+    logic.sumManualSegmentations(self.directory.text, self.mergedManualSegmentations.currentNode())
+    logic.createScanlines(self.scanlines.currentNode())
+    logic.computeMergedSegmentationMetrics(self.mergedManualSegmentations.currentNode(), self.outputSegmentation.currentNode(), self.algorithmSegmentation.currentNode(), self.truePositiveMetric)
+    '''
     logic.run(self.inputSelector.currentNode(), self.configFile.text, self.directory.text, self.mergedManualSegmentations.currentNode(), self.scanlines.currentNode(), self.outputSegmentation.currentNode(), self.algorithmSegmentation.currentNode(), self.truePositiveMetric)
+    '''
 
 #
 # USGeometryLogic
@@ -235,8 +240,237 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
+  def __init__(self, configFile, inputVolume):
+
+    self.inputVolume = inputVolume
+    self.rasToIjk = vtk.vtkMatrix4x4()
+    self.ijkToRas = vtk.vtkMatrix4x4()
+    self.inputVolume.GetRASToIJKMatrix(self.rasToIjk)
+    self.inputVolume.GetIJKToRASMatrix(self.ijkToRas)
+
+    from xml.dom import minidom
+    parser = minidom.parse(configFile)
+    scanConversionElement = parser.getElementsByTagName("ScanConversion")
+    if (len(scanConversionElement) < 1):
+      slicer.util.errorDisplay("Could not find ScanConversion element in configuration file!")
+      return False
+    elif (len(scanConversionElement) > 1):
+      slicer.util.errorDisplay("Found multiple ScanConversion elements in configuration file!")
+      return False
+
+    scanConversionElement = scanConversionElement[0]
+
+    # Values common to both linear and curvilinear
+    self.transducerGeometry = scanConversionElement.attributes['TransducerGeometry'].value
+    self.transducerCenterPixel = scanConversionElement.attributes['TransducerCenterPixel'].value
+    self.transducerCenterPixel = map(int, self.transducerCenterPixel.split(" "))
+    self.numberOfScanlines = int(scanConversionElement.attributes['NumberOfScanLines'].value)
+    self.outputImageSpacing = scanConversionElement.attributes['OutputImageSpacingMmPerPixel'].value
+    self.outputImageSpacing = map(float, self.outputImageSpacing.split(" "))
+    self.numberOfSamplesPerScanline = int(scanConversionElement.attributes['NumberOfSamplesPerScanLine'].value)
+
+    # Values just for curvilinear
+    if (self.transducerGeometry == "CURVILINEAR"):
+      self.thetaStartDeg = float(scanConversionElement.attributes['ThetaStartDeg'].value)
+      self.thetaStopDeg = float(scanConversionElement.attributes['ThetaStopDeg'].value)
+      self.radiusStartMm = float(scanConversionElement.attributes['RadiusStartMm'].value)
+      self.radiusStopMm = float(scanConversionElement.attributes['RadiusStopMm'].value)
+      self.totalDeg = abs(self.thetaStopDeg - self.thetaStartDeg)
+      self.degreesPerScanline = self.totalDeg / self.numberOfScanlines
+      self.circleCenter = [self.transducerCenterPixel[0], self.transducerCenterPixel[1] - self.radiusStartMm/self.outputImageSpacing[1]]
+    # Values just for linear
+    elif (self.transducerGeometry == "LINEAR"):
+      self.transducerWidthMm = float(scanConversionElement.attributes['TransducerWidthMm'].value)
+      self.imagingDepthMm = float(scanConversionElement.attributes['ImagingDepthMm'].value)
+      self.imageWidthPixel = self.transducerWidthMm / float(self.outputImageSpacing[0])
+      self.topLeftPixel = [self.transducerCenterPixel[0] - 0.5 * float(self.imageWidthPixel), self.transducerCenterPixel[1]]
+      self.scanlineSpacingPixels = self.imageWidthPixel / float(self.numberOfScanlines)
+      self.scanlineLengthPixels = self.imagingDepthMm / self.outputImageSpacing[1]
+
+  def scanlineEndPoints(self, scanline):
+    import math
+    # Compute curvilinear xy values
+    if (self.transducerGeometry == "CURVILINEAR"):
+
+      # Compute angle for desired scanline
+      angle = self.thetaStartDeg + scanline * self.degreesPerScanline
+      angleRadians = math.pi * angle / 180
+
+      # Compute the starting point
+      startScanlineX = self.circleCenter[0] + math.sin(angleRadians) * self.radiusStartMm / self.outputImageSpacing[0]
+      startScanlineY = self.circleCenter[1] + math.cos(angleRadians) * self.radiusStartMm / self.outputImageSpacing[1]
+
+      # Compute the ending point
+      endScanlineX = self.circleCenter[0] + math.sin(angleRadians) * self.radiusStopMm / self.outputImageSpacing[0]
+      endScanlineY = self.circleCenter[1] + math.cos(angleRadians) * self.radiusStopMm / self.outputImageSpacing[1]
+      # Compute linear xy values
+    elif (self.transducerGeometry == "LINEAR"):
+      # Compute the starting point
+      startScanlineX = self.topLeftPixel[0] + scanline * self.scanlineSpacingPixels
+      startScanlineY = self.topLeftPixel[1]
+
+      # Compute the end point
+      endScanlineX = startScanlineX # Vertical line so same 'x' value
+      endScanlineY = self.topLeftPixel[1] + self.scanlineLengthPixels
+    else:
+      # ERROR: should not reach here
+      print("Error in scanlineEndPoints")
+
+    # Combine XY values and return
+    startScanline = [startScanlineX, startScanlineY]
+    endScanline = [endScanlineX, endScanlineY]
+
+    return [startScanline, endScanline]
+
   def euclidean_distance(self,point1,point2):
       return math.sqrt((point2[0] - point1[0]) ** 2 + (point2[1] - point1[1]) ** 2 + (point2[2] - point1[2]) ** 2)
+
+  def sumManualSegmentations(self, manualSegmentationsDirectory, mergedVolume):
+    # Get the manual segmentations and create a single summed image
+    import glob
+    manualSegmentationFilenames = glob.glob(manualSegmentationsDirectory+"/*.mha")
+
+    # Get the first image which each successive image will be added to
+    reader = vtk.vtkMetaImageReader()
+    reader.SetFileName(manualSegmentationFilenames[0])
+    reader.Update()
+    summedImage = vtk.vtkImageData()
+    summedImage.SetExtent(reader.GetOutput().GetExtent())
+    summedImage.AllocateScalars(vtk.VTK_UNSIGNED_CHAR,1)
+    summedImage.ShallowCopy(reader.GetOutput())
+
+    # Image data for output segmentation
+    outputSegmentation = vtk.vtkImageData()
+    outputSegmentation.SetExtent(reader.GetOutput().GetExtent())
+    outputSegmentation.AllocateScalars(vtk.VTK_UNSIGNED_CHAR,1)
+
+    # Initialize filter to add images together
+    mathFilter = vtk.vtkImageMathematics()
+
+    # Iterate list and add each new image
+    for currentFile in manualSegmentationFilenames[1:]:
+      # Get new image
+      reader.SetFileName(currentFile)
+      reader.Update()
+
+      # Add it to existing summation
+      mathFilter.SetInput1Data(summedImage)
+      mathFilter.SetInput2Data(reader.GetOutput())
+      mathFilter.Update()
+
+      # Get new summation
+      summedImage.ShallowCopy(mathFilter.GetOutput())
+
+    # Add summed image to slicer scene
+    mergedVolume.SetRASToIJKMatrix(self.rasToIjk)
+    mergedVolume.SetIJKToRASMatrix(self.ijkToRas)
+    mergedVolume.SetAndObserveImageData(summedImage)
+
+  def createScanlines(self, scanlineVolume):
+    imgDim = self.inputVolume.GetImageData().GetDimensions()
+    drawFilter = vtk.vtkImageCanvasSource2D()
+    drawFilter.SetExtent(0,imgDim[0]-1,0,imgDim[1]-1,0,0)
+    drawFilter.SetDrawColor(1)
+
+    for i in range(self.numberOfScanlines):
+      [startScanline, endScanline] = self.scanlineEndPoints(i)
+      drawFilter.FillTube(int(startScanline[0]),int(startScanline[1]),int(endScanline[0]),int(endScanline[1]),1)
+
+    drawFilter.Update()
+
+    # Copy scanline slice to match the Z-dimension of input US volume
+    numOfSlices = imgDim[2]
+    imageAppendFilter = vtk.vtkImageAppend()
+    imageAppendFilter.SetAppendAxis(2)
+    for _ in range(numOfSlices):
+      imageAppendFilter.AddInputData(drawFilter.GetOutput())
+    imageAppendFilter.Update()
+
+    # Set scanline imagedata
+    scanlineVolume.SetIJKToRASMatrix(self.ijkToRas)
+    scanlineVolume.SetRASToIJKMatrix(self.rasToIjk)
+    scanlineVolume.SetAndObserveImageData(imageAppendFilter.GetOutput())
+
+  def computeMergedSegmentationMetrics(self, summedImage, outputSegmentation, algorithmSegmentation, truePositiveOutput):
+    imgDim = self.inputVolume.GetImageData().GetDimensions()
+    summedImageData = summedImage.GetImageData()
+    algorithmSegmentationImageData = algorithmSegmentation.GetImageData()
+    outputSegmentationImageData = vtk.vtkImageData()
+    outputSegmentationImageData.SetExtent(summedImageData.GetExtent())
+    outputSegmentationImageData.AllocateScalars(vtk.VTK_UNSIGNED_CHAR,1)
+
+    # Values for metric computations
+    totalAlgorithmSegmentationPoints = 0
+    pointsWithinAcceptableRegion = 0
+
+    # Iterate each scanline
+    for i in range(self.numberOfScanlines):
+      [startScanline, endScanline] = self.scanlineEndPoints(i)
+      for z in range(imgDim[2]):
+        # Create the scanline line source
+        currentLine = vtk.vtkLineSource()
+        currentStartPoint = [startScanline[0], startScanline[1], z]
+        currentEndPoint = [endScanline[0], endScanline[1], z]
+        currentLine.SetPoint1(currentStartPoint)
+        currentLine.SetPoint2(currentEndPoint)
+        currentLine.SetResolution(self.numberOfSamplesPerScanline)
+        currentLine.Update()
+
+        # Get the points on the line
+        denom = math.sqrt((currentEndPoint[0] - currentStartPoint[0])**2 + (currentEndPoint[1] - currentStartPoint[1])**2)
+        unitVector = [(currentEndPoint[0] - currentStartPoint[0])/denom, (currentEndPoint[1] - currentStartPoint[1])/denom]
+        linePoints = currentLine.GetOutput()
+        xVals = []
+        yVals = []
+        algorithmSegmentationPoints = []
+
+        # Iterate each point on line
+        for j in range(linePoints.GetNumberOfPoints()):
+          currentPoint = linePoints.GetPoint(j)
+          summedSegPoint = summedImageData.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0) # TODO: summedImage is mrmlNode now so need to get imagedata from it
+          if (summedSegPoint > 0):
+            # Add points current X/Y value N times where N is overlap count
+            xVals.extend([int(currentPoint[0]) for _ in range(int(summedSegPoint))])
+            yVals.extend([int(currentPoint[1]) for _ in range(int(summedSegPoint))])
+
+          algorithmSegPoint = algorithmSegmentationImageData.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0)
+
+          if (algorithmSegPoint > 0):
+            algorithmSegmentationPoints.append([int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2])])
+            totalAlgorithmSegmentationPoints += 1
+
+        if (len(xVals) > 0):
+          # Compute mean point
+          xMean = sum(xVals)/len(xVals)
+          yMean = sum(yVals)/len(yVals)
+          outputSegmentationImageData.SetScalarComponentFromDouble(xMean,yMean,z,0,255)
+
+          # Compute region edges from standard deviation
+          euclideanDistances = []
+          for currentX, currentY in zip(xVals, yVals):
+            currentDistance = self.euclidean_distance([xMean,yMean,z],[currentX,currentY,z])
+            euclideanDistances.append(currentDistance)
+          std = numpy.std(euclideanDistances)
+
+          toleranceFactor = 5 # What should be used here?
+          acceptableRegionPoint1 = [int(xMean + toleranceFactor*std * unitVector[0]), int(yMean + toleranceFactor*std * unitVector[1])]
+          acceptableRegionPoint2 = [int(xMean + -toleranceFactor*std * unitVector[0]), int(yMean + -toleranceFactor*std * unitVector[1])]
+
+          outputSegmentationImageData.SetScalarComponentFromDouble(acceptableRegionPoint1[0],acceptableRegionPoint1[1],z,0,100)
+          outputSegmentationImageData.SetScalarComponentFromDouble(acceptableRegionPoint2[0],acceptableRegionPoint2[1],z,0,100)
+
+          # Compute distance to acceptable region edge, can use either point as they are equal just opposite
+          acceptableDistance = self.euclidean_distance([xMean,yMean,z],[acceptableRegionPoint1[0],acceptableRegionPoint1[1],z])
+          for currentPoint in algorithmSegmentationPoints:
+            currentDistance = self.euclidean_distance([xMean,yMean,z], currentPoint)
+            if (currentDistance < acceptableDistance):
+              pointsWithinAcceptableRegion += 1
+
+    outputSegmentation.SetAndObserveImageData(outputSegmentationImageData)
+    outputSegmentation.SetRASToIJKMatrix(self.rasToIjk)
+    outputSegmentation.SetIJKToRASMatrix(self.ijkToRas)
+    truePositiveValue = float(pointsWithinAcceptableRegion) / float(totalAlgorithmSegmentationPoints) * 100
+    truePositiveOutput.setText(truePositiveValue)
 
   def run(self, inputVolume, configFileName, manualSegmentationsDirectory, mergedVolume, scanlineVolume, outputSegmentationVolume, algorithmSegmentationVolume, truePositiveOutput):
     """
@@ -314,15 +548,12 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     for i in range(US_Geometry.numberOfScanlines):
       # Compute scanline endpoints
       [startScanline, endScanline] = US_Geometry.scanlineEndPoints(i)
-      print("Scanline start: [{} {}".format(startScanline[0],startScanline[1]))
-      print("Scanline end: [{} {}".format(endScanline[0],endScanline[1]))
 
       # Draw the scanline
       drawFilter.FillTube(int(startScanline[0]),int(startScanline[1]),int(endScanline[0]),int(endScanline[1]),1)
 
       # Compute the manual segmentation points on each scanline
       for z in range(imgDim[2]):
-        print("Creating line for slice {}".format(z))
         # Create line
         currentLine = vtk.vtkLineSource()
         currentStartPoint = [startScanline[0], startScanline[1], z]
@@ -346,13 +577,12 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
           if (summedSegPoint > 0):
             xVals.extend([int(currentPoint[0]) for _ in range(int(summedSegPoint))]) # Add points current X value X number of times where X is overlap count
             yVals.extend([int(currentPoint[1]) for _ in range(int(summedSegPoint))])
-            print("The point [{}, {}, {}] has value {}!".format(int(currentPoint[0]), int(currentPoint[1]), int(currentPoint[2]), summedSegPoint))
 
           algorithmSegPoint = algorithmSegmentationData.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0)
           if (algorithmSegPoint > 0):
-            print("Adding point [{} {} {}]".format(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2])))
             algorithmSegmentationPoints.append([int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2])])
             totalAlgorithmSegmentationPoints += 1
+
         # If there are points on the line, compute mean / std
         if (len(xVals) > 0):
           # Compute mean point
@@ -361,12 +591,16 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
           outputSegmentation.SetScalarComponentFromDouble(xMean,yMean,z,0,255)
 
           # Compute region edges from standard deviation
-          xStd = numpy.std(xVals)
-          yStd = numpy.std(yVals)
-          stdSum = xStd + yStd
+          euclideanDistances = []
+          for currentX, currentY in zip(xVals, yVals):
+            currentDistance = self.euclidean_distance([xMean,yMean,z],[currentX,currentY,z])
+            euclideanDistances.append(currentDistance)
+          std = numpy.std(euclideanDistances)
+
           toleranceFactor = 5 # What should be used as value here?
-          acceptableRegionPoint1 = [int(xMean + toleranceFactor*stdSum * unitVector[0]), int(yMean + toleranceFactor*stdSum * unitVector[1])]
-          acceptableRegionPoint2 = [int(xMean + -toleranceFactor*stdSum * unitVector[0]), int(yMean + -toleranceFactor*stdSum * unitVector[1])]          
+          acceptableRegionPoint1 = [int(xMean + toleranceFactor*std * unitVector[0]), int(yMean + toleranceFactor*std * unitVector[1])]
+          acceptableRegionPoint2 = [int(xMean + -toleranceFactor*std * unitVector[0]), int(yMean + -toleranceFactor*std * unitVector[1])]
+
           outputSegmentation.SetScalarComponentFromDouble(acceptableRegionPoint1[0],acceptableRegionPoint1[1],z,0,100)
           outputSegmentation.SetScalarComponentFromDouble(acceptableRegionPoint2[0],acceptableRegionPoint2[1],z,0,100)
           outputSegmentationPoints.InsertNextPoint(xMean,yMean,z)
@@ -379,10 +613,10 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
 
       print("Finished scanline #{} processing".format(i))
 
-    print("Algorithm segmentation points: {}".format(totalAlgorithmSegmentationPoints))
-    print("Acceptable points: {}".format(pointsWithinAcceptableRegion))
+    # Compute metrics and set output text
     truePositive = float(pointsWithinAcceptableRegion) / float(totalAlgorithmSegmentationPoints) * 100
     truePositiveOutput.setText(truePositive)
+    
     # Draw scanlines
     drawFilter.Update()
 
@@ -407,7 +641,10 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     return True
 
 class UltrasoundTransducerGeometry:
-  def __init__(self, configFile):
+  def __init__(self, configFile, inputVolume):
+
+    self.inputVolume = inputVolume
+
     from xml.dom import minidom
     parser = minidom.parse(configFile)
     scanConversionElement = parser.getElementsByTagName("ScanConversion")
@@ -443,12 +680,9 @@ class UltrasoundTransducerGeometry:
       self.transducerWidthMm = float(scanConversionElement.attributes['TransducerWidthMm'].value)
       self.imagingDepthMm = float(scanConversionElement.attributes['ImagingDepthMm'].value)
       self.imageWidthPixel = self.transducerWidthMm / float(self.outputImageSpacing[0])
-      print("Image width pixel: {}".format(self.imageWidthPixel))
       self.topLeftPixel = [self.transducerCenterPixel[0] - 0.5 * float(self.imageWidthPixel), self.transducerCenterPixel[1]]
-      print("Top left pixel: {}".format(self.topLeftPixel))
       self.scanlineSpacingPixels = self.imageWidthPixel / float(self.numberOfScanlines)
       self.scanlineLengthPixels = self.imagingDepthMm / self.outputImageSpacing[1]
-      print("Scanline length pixels: {}".format(self.scanlineLengthPixels))
 
   def scanlineEndPoints(self, scanline):
     import math
