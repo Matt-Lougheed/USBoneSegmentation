@@ -47,7 +47,7 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     inputsCollapsibleButton = ctk.ctkCollapsibleButton()
     inputsCollapsibleButton.text = "Inputs"
     self.layout.addWidget(inputsCollapsibleButton)
-    inputsFormLayout = qt.QFormLayout(inputsCollapsibleButton)
+    inputsFormLayout = qt.QVBoxLayout(inputsCollapsibleButton)
 
     #
     # Input volume selector
@@ -62,31 +62,6 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     self.inputSelector.showChildNodeTypes = False
     self.inputSelector.setMRMLScene( slicer.mrmlScene )
     self.inputSelector.setToolTip( "Pick the input volume for geometry viewing." )
-    inputsFormLayout.addRow("Input volume: ", self.inputSelector)
-
-    #
-    # Configuration file selector
-    #
-    fileLayout = qt.QHBoxLayout()
-    self.configFile = qt.QLineEdit()
-    self.configFile.setReadOnly(True)
-    self.configFileButton = qt.QPushButton()
-    self.configFileButton.setText("Select File")
-    fileLayout.addWidget(self.configFile)
-    fileLayout.addWidget(self.configFileButton)
-    inputsFormLayout.addRow("Configuration file: ", fileLayout)
-
-    #
-    # Manual segmentations directory
-    #
-    directoryLayout = qt.QHBoxLayout()
-    self.directory = qt.QLineEdit()
-    self.directory.setReadOnly(True)
-    self.directoryButton = qt.QPushButton()
-    self.directoryButton.setText("Select Directory")
-    directoryLayout.addWidget(self.directory)
-    directoryLayout.addWidget(self.directoryButton)
-    inputsFormLayout.addRow("Manual segmentations directory: ", directoryLayout)
 
     #
     # Algorithm segmentation volume selector
@@ -101,15 +76,75 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     self.algorithmSegmentation.showChildNodeTypes = False
     self.algorithmSegmentation.setMRMLScene( slicer.mrmlScene )
     self.algorithmSegmentation.setToolTip( "Pick the algorithm segmentation to evaluate." )
-    inputsFormLayout.addRow("Algorithm segmentation: ", self.algorithmSegmentation)
+
+    #
+    # Volumes group box
+    #
+    self.inputVolumesLayout = qt.QFormLayout()
+    self.inputVolumesLayout.addRow("Input volume: ", self.inputSelector)
+    self.inputVolumesLayout.addRow("Algorithm segmentation: ", self.algorithmSegmentation)
+    self.volumesGroupBox = qt.QGroupBox()
+    self.volumesGroupBox.setTitle("Volumes")
+    self.volumesGroupBox.setLayout(self.inputVolumesLayout)
+    inputsFormLayout.addWidget(self.volumesGroupBox)
+
+    #
+    # Configuration file selector
+    #
+    fileLayout = qt.QHBoxLayout()
+    self.configFile = qt.QLineEdit()
+    self.configFile.setReadOnly(True)
+    self.configFileButton = qt.QPushButton()
+    self.configFileButton.setText("Select File")
+    fileLayout.addWidget(self.configFile)
+    fileLayout.addWidget(self.configFileButton)
+
+    #
+    # Manual segmentations directory
+    #
+    directoryLayout = qt.QHBoxLayout()
+    self.directory = qt.QLineEdit()
+    self.directory.setReadOnly(True)
+    self.directoryButton = qt.QPushButton()
+    self.directoryButton.setText("Select Directory")
+    directoryLayout.addWidget(self.directory)
+    directoryLayout.addWidget(self.directoryButton)
+
+    #
+    # Paths group box
+    #
+    self.inputFilePathsLayout = qt.QFormLayout()
+    self.inputFilePathsLayout.addRow("PLUS configuration file: ", fileLayout)
+    self.inputFilePathsLayout.addRow("Manual segmentations directory: ", directoryLayout)
+    self.pathsGroupBox = qt.QGroupBox()
+    self.pathsGroupBox.setTitle("Paths")
+    self.pathsGroupBox.setLayout(self.inputFilePathsLayout)
+    inputsFormLayout.addWidget(self.pathsGroupBox)
+
+    #
+    # False negative value
+    #
+    self.falseNegativeDistance = qt.QSpinBox()
+    self.falseNegativeDistance.setMinimum(0)
+    self.falseNegativeDistance.setSuffix(" mm")
+
+    #
+    # Parameters group box
+    #
+    self.inputParametersLayout = qt.QFormLayout()
+    self.inputParametersLayout.addRow("False negative distance: ", self.falseNegativeDistance)
+    self.parametersGroupBox = qt.QGroupBox()
+    self.parametersGroupBox.setTitle("Parameters")
+    self.parametersGroupBox.setLayout(self.inputParametersLayout)
+    inputsFormLayout.addWidget(self.parametersGroupBox)
 
     #
     # OUTPUT VOLUMES Area
     #
     outputsCollapsibleButton = ctk.ctkCollapsibleButton()
-    outputsCollapsibleButton.text = "Output Volumes"
+    outputsCollapsibleButton.text = "Outputs"
     self.layout.addWidget(outputsCollapsibleButton)
-    outputsFormLayout = qt.QFormLayout(outputsCollapsibleButton)
+    outputsFormLayout = qt.QVBoxLayout(outputsCollapsibleButton)
 
     #
     # Merged manual segmentations
@@ -125,7 +160,6 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     self.mergedManualSegmentations.showChildNodeTypes = False
     self.mergedManualSegmentations.setMRMLScene( slicer.mrmlScene )
     self.mergedManualSegmentations.setToolTip( "Pick the label map for the merged manual segmentations." )
-    outputsFormLayout.addRow("Merged manual segmentations: ", self.mergedManualSegmentations)
 
     #
     # Scanline label map
@@ -141,10 +175,9 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     self.scanlines.showChildNodeTypes = False
     self.scanlines.setMRMLScene( slicer.mrmlScene )
     self.scanlines.setToolTip( "Pick the label map for displaying the input volumes scanlines." )
-    outputsFormLayout.addRow("Scanlines: ", self.scanlines)
 
     #
-    # Scanline label map
+    # Output segmentation label map
     #
     self.outputSegmentation = slicer.qMRMLNodeComboBox()
     self.outputSegmentation.nodeTypes = ["vtkMRMLLabelMapVolumeNode"]
@@ -157,74 +190,156 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     self.outputSegmentation.showChildNodeTypes = False
     self.outputSegmentation.setMRMLScene( slicer.mrmlScene )
     self.outputSegmentation.setToolTip( "Pick the label map for the output segmentation." )
-    outputsFormLayout.addRow("Output segmentation: ", self.outputSegmentation)
 
     #
-    # OUTPUT METRIC Area
+    # Volumes group box
     #
-    outputMetricsCollapsibleButton = ctk.ctkCollapsibleButton()
-    outputMetricsCollapsibleButton.text = "Output Metrics"
-    self.layout.addWidget(outputMetricsCollapsibleButton)
-    outputMetricsFormLayout = qt.QFormLayout(outputMetricsCollapsibleButton)
+    self.outputVolumesLayout = qt.QFormLayout()
+    self.outputVolumesLayout.addRow("Summed manaual segmentations: ", self.mergedManualSegmentations)
+    self.outputVolumesLayout.addRow("Scanlines: ", self.scanlines)
+    self.outputVolumesLayout.addRow("Output segmentation: ", self.outputSegmentation)
+    self.outputVolumesGroupBox = qt.QGroupBox()
+    self.outputVolumesGroupBox.setTitle("Volumes")
+    self.outputVolumesGroupBox.setLayout(self.outputVolumesLayout)
+    outputsFormLayout.addWidget(self.outputVolumesGroupBox)
+
+    #
+    # True positive metric
+    #
+    self.truePositiveMetric = qt.QLineEdit()
+    self.truePositiveMetric.setReadOnly(True)
 
     #
     # False negative metric
     #
     self.falseNegativeMetric = qt.QLineEdit()
     self.falseNegativeMetric.setReadOnly(True)
-    outputMetricsFormLayout.addRow("False negative percentage: ", self.falseNegativeMetric)
 
     #
-    # False negative metric
+    # Output metric group box
     #
-    self.truePositiveMetric = qt.QLineEdit()
-    self.truePositiveMetric.setReadOnly(True)
-    outputMetricsFormLayout.addRow("True positive percentage: ", self.truePositiveMetric)
+    self.outputMetricsLayout = qt.QFormLayout()
+    self.outputMetricsLayout.addRow("True positive percentage: ", self.truePositiveMetric)
+    self.outputMetricsLayout.addRow("False negative percentage: ", self.falseNegativeMetric)
+    self.outputMetricsGroupBox = qt.QGroupBox()
+    self.outputMetricsGroupBox.setTitle("Metrics")
+    self.outputMetricsGroupBox.setLayout(self.outputMetricsLayout)
+    outputsFormLayout.addWidget(self.outputMetricsGroupBox)
 
     #
-    # Apply Button
+    # FUNCTIONS Area
     #
-    self.applyButton = qt.QPushButton("Apply")
-    self.applyButton.toolTip = "Run the algorithm."
-    self.applyButton.enabled = False
-    outputMetricsFormLayout.addRow(self.applyButton)
+    functionsCollapsibleButton = ctk.ctkCollapsibleButton()
+    functionsCollapsibleButton.text = "Functions"
+    self.layout.addWidget(functionsCollapsibleButton)
+    functionsFormLayout = qt.QVBoxLayout(functionsCollapsibleButton)
+
+    # Button for generating scanlines from PLUS config file
+    self.createScanlinesButton = qt.QPushButton("Create Scanlines")
+    self.createScanlinesButton.toolTip = "Create scanlines from PLUS configuration file"
+    self.createScanlinesButton.enabled = False
+
+    # Button for combining manual segmentations into one volume
+    self.createMergedManualSegmentationButton = qt.QPushButton("Merge Manual Segmentations")
+    self.createMergedManualSegmentationButton.toolTip = "Combine manual segmentations into one volume"
+    self.createMergedManualSegmentationButton.enabled = False
+
+    # Button for computing metrics of a segmentation
+    self.computeMetricsButton = qt.QPushButton("Compute Metrics")
+    self.computeMetricsButton.toolTip = "Compute the true positive and false negative metrics of a segmentation"
+    self.computeMetricsButton.enabled = False
+
+    # Add buttongs to functions section
+    functionsFormLayout.addWidget(self.createScanlinesButton)
+    functionsFormLayout.addWidget(self.createMergedManualSegmentationButton)
+    functionsFormLayout.addWidget(self.computeMetricsButton)
 
     # Connections
-    self.applyButton.connect('clicked(bool)', self.onApplyButton)
-    self.inputSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
-    self.configFileButton.connect('clicked(bool)', self.selectFile)
+
+    # *** Input/output volumes and parameters ***
+    # Ultrasound volume
+    self.inputSelector.connect('currentNodeChanged(vtkMRMLNode*)', self.onInputSelect)
+    # Algorithm segmentation
+    self.algorithmSegmentation.connect('currentNodeChanged(vtkMRMLNode*)', self.onAlgorithmSegmentationSelect)
+    # PLUS config file
+    self.configFile.connect('textChanged(QString)',self.onConfigFileSelect)
+    # Manual segmentations directory
+    self.directory.connect('textChanged(QString)',self.createMergedManualSegmentationsEnableCheck)
+    # Summed manual segmentations
+    self.mergedManualSegmentations.connect("currentNodeChanged(vtkMRMLNode*)", self.createMergedManualSegmentationsEnableCheck)
+    # Scanlines
+    self.scanlines.connect('currentNodeChanged(vtkMRMLNode*)', self.createScanlinesEnableCheck)
+    # Output segmentation
+    self.outputSegmentation.connect('currentNodeChanged(vtkMRMLNode*)', self.computeMetricsEnableCheck)
+
+    # *** Buttons for selecting config file / manual segmentation directory ***
+    # Manaul segmentation directory button
     self.directoryButton.connect('clicked(bool)', self.selectDirectory)
+    # Ultrasound config file button
+    self.configFileButton.connect('clicked(bool)', self.selectFile)
+
+    # *** Function buttons ***
+    # Sum manual segmentations
+    self.createMergedManualSegmentationButton.connect('clicked(bool)', self.onCreateMergedManualSegmentationButton)
+    # Create scanlines
+    self.createScanlinesButton.connect('clicked(bool)', self.onCreateScanlinesButton)
+    # Compute metrics
+    self.computeMetricsButton.connect('clicked(bool)', self.onComputeMetricsButton)
 
     # Add vertical spacer
     self.layout.addStretch(1)
 
     # Refresh Apply button state
-    self.onSelect()
+    self.onInputSelect()
 
   def cleanup(self):
     pass
 
-  def onSelect(self):
-    fileName = self.configFile.text
-    self.applyButton.enabled = self.inputSelector.currentNode() and os.path.isfile(fileName)
+  def ultrasoundVolumeAndConfigExist(self):
+    return self.inputSelector.currentNode() and os.path.isfile(self.configFile.text)
+
+  def createScanlinesEnableCheck(self):
+    self.createScanlinesButton.enabled = self.scanlines.currentNode() and self.ultrasoundVolumeAndConfigExist()
+
+  def createMergedManualSegmentationsEnableCheck(self):
+    self.createMergedManualSegmentationButton.enabled = self.mergedManualSegmentations.currentNode() and self.ultrasoundVolumeAndConfigExist() and os.path.isdir(self.directory.text)
+
+  def computeMetricsEnableCheck(self):
+    #summedImage, outputSegmentation, algorithmSegmentatiom
+    self.computeMetricsButton.enabled = self.ultrasoundVolumeAndConfigExist() and self.mergedManualSegmentations.currentNode() and self.algorithmSegmentation.currentNode()
+
+  def onInputSelect(self):
+    self.createMergedManualSegmentationsEnableCheck()
+    self.createScanlinesEnableCheck()
+    self.computeMetricsEnableCheck()
+
+  def onAlgorithmSegmentationSelect(self):
+    self.computeMetricsEnableCheck()
+
+  def onConfigFileSelect(self):
+    self.createMergedManualSegmentationsEnableCheck()
+    self.createScanlinesEnableCheck()
+    self.computeMetricsEnableCheck()
 
   def selectFile(self):
     fileName = qt.QFileDialog().getOpenFileName()
     self.configFile.setText(fileName)
-    self.applyButton.enabled = self.inputSelector.currentNode() and os.path.isfile(fileName)
 
   def selectDirectory(self):
     directoryName = qt.QFileDialog().getExistingDirectory()
     self.directory.setText(directoryName)
 
-  def onApplyButton(self):
+  def onCreateScanlinesButton(self):
+    logic = USGeometryLogic(self.configFile.text, self.inputSelector.currentNode())
+    logic.createScanlines(self.scanlines.currentNode())
+
+  def onCreateMergedManualSegmentationButton(self):
     logic = USGeometryLogic(self.configFile.text, self.inputSelector.currentNode())
     logic.sumManualSegmentations(self.directory.text, self.mergedManualSegmentations.currentNode())
-    logic.createScanlines(self.scanlines.currentNode())
-    logic.computeMergedSegmentationMetrics(self.mergedManualSegmentations.currentNode(), self.outputSegmentation.currentNode(), self.algorithmSegmentation.currentNode(), self.truePositiveMetric)
-    '''
-    logic.run(self.inputSelector.currentNode(), self.configFile.text, self.directory.text, self.mergedManualSegmentations.currentNode(), self.scanlines.currentNode(), self.outputSegmentation.currentNode(), self.algorithmSegmentation.currentNode(), self.truePositiveMetric)
-    '''
+
+  def onComputeMetricsButton(self):
+    logic = USGeometryLogic(self.configFile.text, self.inputSelector.currentNode())
+    logic.computeMergedSegmentationMetrics(self.mergedManualSegmentations.currentNode(), self.outputSegmentation.currentNode(), self.algorithmSegmentation.currentNode(), self.falseNegativeDistance.value, self.truePositiveMetric, self.falseNegativeMetric)
 
 #
 # USGeometryLogic
@@ -247,7 +362,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     self.ijkToRas = vtk.vtkMatrix4x4()
     self.inputVolume.GetRASToIJKMatrix(self.rasToIjk)
     self.inputVolume.GetIJKToRASMatrix(self.ijkToRas)
-
+    self.scanlines = []
     from xml.dom import minidom
     parser = minidom.parse(configFile)
     scanConversionElement = parser.getElementsByTagName("ScanConversion")
@@ -286,6 +401,12 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
       self.topLeftPixel = [self.transducerCenterPixel[0] - 0.5 * float(self.imageWidthPixel), self.transducerCenterPixel[1]]
       self.scanlineSpacingPixels = self.imageWidthPixel / float(self.numberOfScanlines)
       self.scanlineLengthPixels = self.imagingDepthMm / self.outputImageSpacing[1]
+
+    # Create the scanlines
+    for i in range(self.numberOfScanlines):
+      [start, end] = self.scanlineEndPoints(i)
+      currentScanline = Scanline(start, end)
+      self.scanlines.append(currentScanline)
 
   def scanlineEndPoints(self, scanline):
     import math
@@ -372,10 +493,9 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     drawFilter.SetExtent(0,imgDim[0]-1,0,imgDim[1]-1,0,0)
     drawFilter.SetDrawColor(1)
 
+    # Draw each scanline
     for i in range(self.numberOfScanlines):
-      [startScanline, endScanline] = self.scanlineEndPoints(i)
-      drawFilter.FillTube(int(startScanline[0]),int(startScanline[1]),int(endScanline[0]),int(endScanline[1]),1)
-
+      drawFilter.FillTube(int(self.scanlines[i].startPoint[0]),int(self.scanlines[i].startPoint[1]),int(self.scanlines[i].endPoint[0]),int(self.scanlines[i].endPoint[1]),1)
     drawFilter.Update()
 
     # Copy scanline slice to match the Z-dimension of input US volume
@@ -391,7 +511,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     scanlineVolume.SetRASToIJKMatrix(self.rasToIjk)
     scanlineVolume.SetAndObserveImageData(imageAppendFilter.GetOutput())
 
-  def computeMergedSegmentationMetrics(self, summedImage, outputSegmentation, algorithmSegmentation, truePositiveOutput):
+  def computeMergedSegmentationMetrics(self, summedImage, outputSegmentation, algorithmSegmentation, falseNegativeDistance, truePositiveOutput, falseNegativeOutput):
     imgDim = self.inputVolume.GetImageData().GetDimensions()
     summedImageData = summedImage.GetImageData()
     algorithmSegmentationImageData = algorithmSegmentation.GetImageData()
@@ -402,10 +522,14 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     # Values for metric computations
     totalAlgorithmSegmentationPoints = 0
     pointsWithinAcceptableRegion = 0
+    pointsWithinRequiredRegion = 0
+    scanlinesWithSegmentation = 0
 
     # Iterate each scanline
     for i in range(self.numberOfScanlines):
       [startScanline, endScanline] = self.scanlineEndPoints(i)
+      currentScanline = Scanline(startScanline, endScanline)
+      self.scanlines.append(currentScanline)
       for z in range(imgDim[2]):
         # Create the scanline line source
         currentLine = vtk.vtkLineSource()
@@ -416,9 +540,16 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
         currentLine.SetResolution(self.numberOfSamplesPerScanline)
         currentLine.Update()
 
-        # Get the points on the line
+        # Compute the unit vector of the current scanline
         denom = math.sqrt((currentEndPoint[0] - currentStartPoint[0])**2 + (currentEndPoint[1] - currentStartPoint[1])**2)
         unitVector = [(currentEndPoint[0] - currentStartPoint[0])/denom, (currentEndPoint[1] - currentStartPoint[1])/denom]
+
+        # Compute the unit vector length in mm
+        unitVectorMM = [unitVector[0]*self.outputImageSpacing[0], unitVector[1]*self.outputImageSpacing[1]]
+        unitVectorLengthMM = math.sqrt(unitVectorMM[0]**2 + unitVectorMM[1]**2)
+
+        # Compute the factor unit vector needs to be multiplied by to get to false negative distance
+        unitVectorFactor = falseNegativeDistance / unitVectorLengthMM
         linePoints = currentLine.GetOutput()
         xVals = []
         yVals = []
@@ -427,7 +558,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
         # Iterate each point on line
         for j in range(linePoints.GetNumberOfPoints()):
           currentPoint = linePoints.GetPoint(j)
-          summedSegPoint = summedImageData.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0) # TODO: summedImage is mrmlNode now so need to get imagedata from it
+          summedSegPoint = summedImageData.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0)
           if (summedSegPoint > 0):
             # Add points current X/Y value N times where N is overlap count
             xVals.extend([int(currentPoint[0]) for _ in range(int(summedSegPoint))])
@@ -440,6 +571,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
             totalAlgorithmSegmentationPoints += 1
 
         if (len(xVals) > 0):
+          scanlinesWithSegmentation += 1
           # Compute mean point
           xMean = sum(xVals)/len(xVals)
           yMean = sum(yVals)/len(yVals)
@@ -451,194 +583,50 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
             currentDistance = self.euclidean_distance([xMean,yMean,z],[currentX,currentY,z])
             euclideanDistances.append(currentDistance)
           std = numpy.std(euclideanDistances)
+          std += 1 # This is so that when calculating true positive point from the false negative point we only extend further (ie. std of 0 means the true positive point is at same point, and > 0 moves out from false negative point)
 
           toleranceFactor = 5 # What should be used here?
-          acceptableRegionPoint1 = [int(xMean + toleranceFactor*std * unitVector[0]), int(yMean + toleranceFactor*std * unitVector[1])]
-          acceptableRegionPoint2 = [int(xMean + -toleranceFactor*std * unitVector[0]), int(yMean + -toleranceFactor*std * unitVector[1])]
+          falseNegativeRegionPoint1 = [xMean + unitVectorFactor * unitVector[0], yMean + unitVectorFactor * unitVector[1]]
+          falseNegativeRegionPoint2 = [xMean + -unitVectorFactor * unitVector[0], yMean + -unitVectorFactor * unitVector[1]]
 
-          outputSegmentationImageData.SetScalarComponentFromDouble(acceptableRegionPoint1[0],acceptableRegionPoint1[1],z,0,100)
-          outputSegmentationImageData.SetScalarComponentFromDouble(acceptableRegionPoint2[0],acceptableRegionPoint2[1],z,0,100)
+          truePositiveRegionPoint1 = [xMean + unitVectorFactor * std * unitVector[0], yMean + unitVectorFactor * std * unitVector[1]]
+          truePositiveRegionPoint2 = [xMean + -unitVectorFactor * std * unitVector[0], yMean + -unitVectorFactor * std * unitVector[1]]
 
-          # Compute distance to acceptable region edge, can use either point as they are equal just opposite
-          acceptableDistance = self.euclidean_distance([xMean,yMean,z],[acceptableRegionPoint1[0],acceptableRegionPoint1[1],z])
+          # Add false negative region points to the output
+          outputSegmentationImageData.SetScalarComponentFromDouble(int(falseNegativeRegionPoint1[0]),int(falseNegativeRegionPoint1[1]),z,0,1)
+          outputSegmentationImageData.SetScalarComponentFromDouble(int(falseNegativeRegionPoint2[0]),int(falseNegativeRegionPoint2[1]),z,0,1)
+
+          # Add true positive region points to the output
+          outputSegmentationImageData.SetScalarComponentFromDouble(int(truePositiveRegionPoint1[0]),int(truePositiveRegionPoint1[1]),z,0,2)
+          outputSegmentationImageData.SetScalarComponentFromDouble(int(truePositiveRegionPoint2[0]),int(truePositiveRegionPoint2[1]),z,0,2)
+
+          # Compute algorithm segmentation point distances to acceptable region edge, can use either point as they are equal just opposite
+          acceptableDistance = self.euclidean_distance([xMean,yMean,z],[truePositiveRegionPoint1[0],truePositiveRegionPoint1[1],z])
+          falseNegativeRegionDistance = self.euclidean_distance([xMean,yMean,z],[falseNegativeRegionPoint1[0],falseNegativeRegionPoint1[1],z])
+          requiredRegionIdentified = False # For false negative metric
           for currentPoint in algorithmSegmentationPoints:
             currentDistance = self.euclidean_distance([xMean,yMean,z], currentPoint)
             if (currentDistance < acceptableDistance):
               pointsWithinAcceptableRegion += 1
+            if (currentDistance < falseNegativeRegionDistance):
+              requiredRegionIdentified = True
 
+          if (requiredRegionIdentified):
+            pointsWithinRequiredRegion += 1
+
+          # Determine if an algorithm segmentation point is within
     outputSegmentation.SetAndObserveImageData(outputSegmentationImageData)
     outputSegmentation.SetRASToIJKMatrix(self.rasToIjk)
     outputSegmentation.SetIJKToRASMatrix(self.ijkToRas)
+
+    # Compute / set true positive metric
     truePositiveValue = float(pointsWithinAcceptableRegion) / float(totalAlgorithmSegmentationPoints) * 100
     truePositiveOutput.setText(truePositiveValue)
 
-  def run(self, inputVolume, configFileName, manualSegmentationsDirectory, mergedVolume, scanlineVolume, outputSegmentationVolume, algorithmSegmentationVolume, truePositiveOutput):
-    """
-    Run the actual algorithm
-    """
+    # Compute / set false negative metric
+    falseNegativeValue = float(pointsWithinRequiredRegion) / float(scanlinesWithSegmentation) * 100
+    falseNegativeOutput.setText(falseNegativeValue)
 
-    # Get the manual segmentations and create a single summed image
-    import glob
-    manualSegmentationFilenames = glob.glob(manualSegmentationsDirectory+"/*.mha")
-
-    # Get the first image which each successive image will be added to
-    reader = vtk.vtkMetaImageReader()
-    reader.SetFileName(manualSegmentationFilenames[0])
-    reader.Update()
-    summedImage = vtk.vtkImageData()
-    summedImage.SetExtent(reader.GetOutput().GetExtent())
-    summedImage.AllocateScalars(vtk.VTK_UNSIGNED_CHAR,1)
-    summedImage.ShallowCopy(reader.GetOutput())
-
-    # Image data for output segmentation
-    outputSegmentation = vtk.vtkImageData()
-    outputSegmentation.SetExtent(reader.GetOutput().GetExtent())
-    outputSegmentation.AllocateScalars(vtk.VTK_UNSIGNED_CHAR,1)
-
-
-    # Initialize filter to add images together
-    mathFilter = vtk.vtkImageMathematics()
-
-    # Iterate list and add each new image
-    for currentFile in manualSegmentationFilenames[1:]:
-      # Get new image
-      reader.SetFileName(currentFile)
-      reader.Update()
-
-      # Add it to existing summation
-      mathFilter.SetInput1Data(summedImage)
-      mathFilter.SetInput2Data(reader.GetOutput())
-      mathFilter.Update()
-
-      # Get new summation
-      summedImage.ShallowCopy(mathFilter.GetOutput())
-
-    # Add summed image to slicer scene
-    rasToIjk = vtk.vtkMatrix4x4()
-    ijkToRas = vtk.vtkMatrix4x4()
-    inputVolume.GetRASToIJKMatrix(rasToIjk)
-    inputVolume.GetIJKToRASMatrix(ijkToRas)
-    mergedVolume.SetRASToIJKMatrix(rasToIjk)
-    mergedVolume.SetIJKToRASMatrix(ijkToRas)
-    mergedVolume.SetAndObserveImageData(summedImage)
-
-    # Input ultrasound volume
-    inputImageData = inputVolume.GetImageData()
-    inputDimensions = inputImageData.GetDimensions()
-    inputExtent = inputImageData.GetExtent()
-
-    # Algorithm segmentation
-    algorithmSegmentationData = algorithmSegmentationVolume.GetImageData()
-    totalAlgorithmSegmentationPoints = 0
-    pointsWithinAcceptableRegion = 0
-
-    # Parse input config file
-    US_Geometry = UltrasoundTransducerGeometry(configFileName)
-
-    # Setup the canvas filter to draw scanlines
-    imgDim = inputVolume.GetImageData().GetDimensions()
-    drawFilter = vtk.vtkImageCanvasSource2D()
-    drawFilter.SetExtent(0,imgDim[0]-1,0,imgDim[1]-1,0,0)
-    drawFilter.SetDrawColor(1)
-
-    # Points for the output segmentation
-    outputSegmentationPoints = vtk.vtkPoints()
-
-    # Iterate over scanlines and draw line
-    for i in range(US_Geometry.numberOfScanlines):
-      # Compute scanline endpoints
-      [startScanline, endScanline] = US_Geometry.scanlineEndPoints(i)
-
-      # Draw the scanline
-      drawFilter.FillTube(int(startScanline[0]),int(startScanline[1]),int(endScanline[0]),int(endScanline[1]),1)
-
-      # Compute the manual segmentation points on each scanline
-      for z in range(imgDim[2]):
-        # Create line
-        currentLine = vtk.vtkLineSource()
-        currentStartPoint = [startScanline[0], startScanline[1], z]
-        currentEndPoint = [endScanline[0], endScanline[1], z]
-        currentLine.SetPoint1(currentStartPoint)
-        currentLine.SetPoint2(currentEndPoint)
-        currentLine.SetResolution(US_Geometry.numberOfSamplesPerScanline)
-        currentLine.Update()
-
-        # Get the points on the line
-        denom = math.sqrt((currentEndPoint[0] - currentStartPoint[0])**2 + (currentEndPoint[1] - currentStartPoint[1])**2)
-        unitVector = [(currentEndPoint[0] - currentStartPoint[0])/denom, (currentEndPoint[1] - currentStartPoint[1])/denom]
-        linePoints = currentLine.GetOutput()
-        xVals = []
-        yVals = []
-        algorithmSegmentationPoints = []
-        for j in range(linePoints.GetNumberOfPoints()):
-          # TODO: Get the point from the algorithm segmentation so we can compute if it is within the required region / false negative line
-          currentPoint = linePoints.GetPoint(j)
-          summedSegPoint = summedImage.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0)
-          if (summedSegPoint > 0):
-            xVals.extend([int(currentPoint[0]) for _ in range(int(summedSegPoint))]) # Add points current X value X number of times where X is overlap count
-            yVals.extend([int(currentPoint[1]) for _ in range(int(summedSegPoint))])
-
-          algorithmSegPoint = algorithmSegmentationData.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0)
-          if (algorithmSegPoint > 0):
-            algorithmSegmentationPoints.append([int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2])])
-            totalAlgorithmSegmentationPoints += 1
-
-        # If there are points on the line, compute mean / std
-        if (len(xVals) > 0):
-          # Compute mean point
-          xMean = sum(xVals)/len(xVals)
-          yMean = sum(yVals)/len(yVals)
-          outputSegmentation.SetScalarComponentFromDouble(xMean,yMean,z,0,255)
-
-          # Compute region edges from standard deviation
-          euclideanDistances = []
-          for currentX, currentY in zip(xVals, yVals):
-            currentDistance = self.euclidean_distance([xMean,yMean,z],[currentX,currentY,z])
-            euclideanDistances.append(currentDistance)
-          std = numpy.std(euclideanDistances)
-
-          toleranceFactor = 5 # What should be used as value here?
-          acceptableRegionPoint1 = [int(xMean + toleranceFactor*std * unitVector[0]), int(yMean + toleranceFactor*std * unitVector[1])]
-          acceptableRegionPoint2 = [int(xMean + -toleranceFactor*std * unitVector[0]), int(yMean + -toleranceFactor*std * unitVector[1])]
-
-          outputSegmentation.SetScalarComponentFromDouble(acceptableRegionPoint1[0],acceptableRegionPoint1[1],z,0,100)
-          outputSegmentation.SetScalarComponentFromDouble(acceptableRegionPoint2[0],acceptableRegionPoint2[1],z,0,100)
-          outputSegmentationPoints.InsertNextPoint(xMean,yMean,z)
-
-          acceptableDistance = self.euclidean_distance([xMean,yMean,z],[acceptableRegionPoint1[0],acceptableRegionPoint1[1],z])
-          for currentPoint in algorithmSegmentationPoints:
-            currentDistance = self.euclidean_distance([xMean,yMean,z],currentPoint)
-            if (currentDistance < acceptableDistance):
-              pointsWithinAcceptableRegion += 1
-
-      print("Finished scanline #{} processing".format(i))
-
-    # Compute metrics and set output text
-    truePositive = float(pointsWithinAcceptableRegion) / float(totalAlgorithmSegmentationPoints) * 100
-    truePositiveOutput.setText(truePositive)
-    
-    # Draw scanlines
-    drawFilter.Update()
-
-    # Copy scanline slice to match the Z-dimension of input US volume
-    numOfSlices = imgDim[2]
-    imageAppendFilter = vtk.vtkImageAppend()
-    imageAppendFilter.SetAppendAxis(2)
-    for _ in range(numOfSlices):
-      imageAppendFilter.AddInputData(drawFilter.GetOutput())
-    imageAppendFilter.Update()
-
-    # Set scanline imagedata
-    scanlineVolume.SetIJKToRASMatrix(ijkToRas)
-    scanlineVolume.SetRASToIJKMatrix(rasToIjk)
-    scanlineVolume.SetAndObserveImageData(imageAppendFilter.GetOutput())
-
-    # Set output segmentation imagedata
-    outputSegmentationVolume.SetIJKToRASMatrix(ijkToRas)
-    outputSegmentationVolume.SetRASToIJKMatrix(rasToIjk)
-    outputSegmentationVolume.SetAndObserveImageData(outputSegmentation)
-
-    return True
 
 class UltrasoundTransducerGeometry:
   def __init__(self, configFile, inputVolume):
@@ -718,6 +706,15 @@ class UltrasoundTransducerGeometry:
     endScanline = [endScanlineX, endScanlineY]
 
     return [startScanline, endScanline]
+
+class Scanline():
+
+  def __init__(self, startPoint, endPoint):
+    self.startPoint = startPoint
+    self.endPoint = endPoint
+    self.meanPoints = []
+    self.falseNegativeRegions = []
+    self.truePositiveRegions = []
 
 class USGeometryTest(ScriptedLoadableModuleTest):
   """
