@@ -210,6 +210,12 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     self.truePositiveMetric.setReadOnly(True)
 
     #
+    # False positive metric
+    #
+    self.falsePositiveMetric = qt.QLineEdit()
+    self.falsePositiveMetric.setReadOnly(True)
+
+    #
     # False negative metric
     #
     self.falseNegativeMetric = qt.QLineEdit()
@@ -220,6 +226,7 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     #
     self.outputMetricsLayout = qt.QFormLayout()
     self.outputMetricsLayout.addRow("True positive percentage: ", self.truePositiveMetric)
+    self.outputMetricsLayout.addRow("False positive percentage: ", self.falsePositiveMetric)
     self.outputMetricsLayout.addRow("False negative percentage: ", self.falseNegativeMetric)
     self.outputMetricsGroupBox = qt.QGroupBox()
     self.outputMetricsGroupBox.setTitle("Metrics")
@@ -339,7 +346,7 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
 
   def onComputeMetricsButton(self):
     logic = USGeometryLogic(self.configFile.text, self.inputSelector.currentNode())
-    logic.computeMergedSegmentationMetrics(self.mergedManualSegmentations.currentNode(), self.outputSegmentation.currentNode(), self.algorithmSegmentation.currentNode(), self.falseNegativeDistance.value, self.truePositiveMetric, self.falseNegativeMetric)
+    logic.computeMergedSegmentationMetrics(self.mergedManualSegmentations.currentNode(), self.outputSegmentation.currentNode(), self.algorithmSegmentation.currentNode(), self.falseNegativeDistance.value, self.truePositiveMetric, self.falseNegativeMetric, self.falsePositiveMetric)
 
 #
 # USGeometryLogic
@@ -460,11 +467,6 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     summedImage.AllocateScalars(vtk.VTK_UNSIGNED_CHAR,1)
     summedImage.ShallowCopy(reader.GetOutput())
 
-    # Image data for output segmentation
-    outputSegmentation = vtk.vtkImageData()
-    outputSegmentation.SetExtent(reader.GetOutput().GetExtent())
-    outputSegmentation.AllocateScalars(vtk.VTK_UNSIGNED_CHAR,1)
-
     # Initialize filter to add images together
     mathFilter = vtk.vtkImageMathematics()
 
@@ -491,8 +493,10 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     imgDim = self.inputVolume.GetImageData().GetDimensions()
     drawFilter = vtk.vtkImageCanvasSource2D()
     drawFilter.SetExtent(0,imgDim[0]-1,0,imgDim[1]-1,0,0)
-    drawFilter.SetDrawColor(1)
-
+    drawFilter.SetScalarTypeToUnsignedChar()
+    drawFilter.SetDrawColor(0) # Color for background
+    drawFilter.FillBox(0,imgDim[0]-1,0,imgDim[1]-1) # Initialize background
+    drawFilter.SetDrawColor(1) # Color for scanlines
     # Draw each scanline
     for i in range(self.numberOfScanlines):
       drawFilter.FillTube(int(self.scanlines[i].startPoint[0]),int(self.scanlines[i].startPoint[1]),int(self.scanlines[i].endPoint[0]),int(self.scanlines[i].endPoint[1]),1)
@@ -511,18 +515,24 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     scanlineVolume.SetRASToIJKMatrix(self.rasToIjk)
     scanlineVolume.SetAndObserveImageData(imageAppendFilter.GetOutput())
 
-  def computeMergedSegmentationMetrics(self, summedImage, outputSegmentation, algorithmSegmentation, falseNegativeDistance, truePositiveOutput, falseNegativeOutput):
+  def computeMergedSegmentationMetrics(self, summedImage, outputSegmentation, algorithmSegmentation, falseNegativeDistance, truePositiveOutput, falseNegativeOutput, falsePositiveOutput):
     imgDim = self.inputVolume.GetImageData().GetDimensions()
     summedImageData = summedImage.GetImageData()
     algorithmSegmentationImageData = algorithmSegmentation.GetImageData()
     outputSegmentationImageData = vtk.vtkImageData()
     outputSegmentationImageData.SetExtent(summedImageData.GetExtent())
     outputSegmentationImageData.AllocateScalars(vtk.VTK_UNSIGNED_CHAR,1)
-
+    outputSegmentation.SetAndObserveImageData(outputSegmentationImageData)
+    outputSegmentation.SetRASToIJKMatrix(self.rasToIjk)
+    outputSegmentation.SetIJKToRASMatrix(self.ijkToRas)
+    pixels = slicer.util.array(outputSegmentation.GetName())
+    pixels.fill(0) # Zero out the output segmentation label map
+    
     # Values for metric computations
     totalAlgorithmSegmentationPoints = 0
     pointsWithinAcceptableRegion = 0
     pointsWithinRequiredRegion = 0
+    falsePositivePoints = 0
     scanlinesWithSegmentation = 0
 
     # Iterate each scanline
@@ -559,18 +569,17 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
         for j in range(linePoints.GetNumberOfPoints()):
           currentPoint = linePoints.GetPoint(j)
           summedSegPoint = summedImageData.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0)
-          if (summedSegPoint > 0):
+          if (summedSegPoint > 0): # At least 1 ground truth at this point
             # Add points current X/Y value N times where N is overlap count
             xVals.extend([int(currentPoint[0]) for _ in range(int(summedSegPoint))])
             yVals.extend([int(currentPoint[1]) for _ in range(int(summedSegPoint))])
 
           algorithmSegPoint = algorithmSegmentationImageData.GetScalarComponentAsDouble(int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2]),0)
-
-          if (algorithmSegPoint > 0):
+          if (algorithmSegPoint > 0): # The algorithm identified point as bone
             algorithmSegmentationPoints.append([int(currentPoint[0]),int(currentPoint[1]),int(currentPoint[2])])
             totalAlgorithmSegmentationPoints += 1
 
-        if (len(xVals) > 0):
+        if (len(xVals) > 0): # Scanline contains ground truth segmentation
           scanlinesWithSegmentation += 1
           # Compute mean point
           xMean = sum(xVals)/len(xVals)
@@ -603,30 +612,40 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
           # Compute algorithm segmentation point distances to acceptable region edge, can use either point as they are equal just opposite
           acceptableDistance = self.euclidean_distance([xMean,yMean,z],[truePositiveRegionPoint1[0],truePositiveRegionPoint1[1],z])
           falseNegativeRegionDistance = self.euclidean_distance([xMean,yMean,z],[falseNegativeRegionPoint1[0],falseNegativeRegionPoint1[1],z])
+          print("*****\nFalse negative region distance: {}".format(falseNegativeRegionDistance))
           requiredRegionIdentified = False # For false negative metric
           for currentPoint in algorithmSegmentationPoints:
             currentDistance = self.euclidean_distance([xMean,yMean,z], currentPoint)
-            if (currentDistance < acceptableDistance):
+            print("Current distance: {}".format(currentDistance))
+            if (currentDistance <= acceptableDistance):
               pointsWithinAcceptableRegion += 1
+            else: # If not within acceptable distance it's a false positive
+              falsePositivePoints += 1
             if (currentDistance < falseNegativeRegionDistance):
               requiredRegionIdentified = True
 
           if (requiredRegionIdentified):
             pointsWithinRequiredRegion += 1
-
-          # Determine if an algorithm segmentation point is within
+        else: # No ground truth on this scanline:
+          if len(algorithmSegmentationPoints) > 0: # Algorithm identified bone
+            falsePositivePoints += len(algorithmSegmentationPoints) # All points are false positive
+    '''
     outputSegmentation.SetAndObserveImageData(outputSegmentationImageData)
     outputSegmentation.SetRASToIJKMatrix(self.rasToIjk)
     outputSegmentation.SetIJKToRASMatrix(self.ijkToRas)
-
+    '''
     # Compute / set true positive metric
     truePositiveValue = float(pointsWithinAcceptableRegion) / float(totalAlgorithmSegmentationPoints) * 100
     truePositiveOutput.setText(truePositiveValue)
 
-    # Compute / set false negative metric
-    falseNegativeValue = float(pointsWithinRequiredRegion) / float(scanlinesWithSegmentation) * 100
-    falseNegativeOutput.setText(falseNegativeValue)
+    # Compute / set false positive metric
+    falsePositiveValue = float(falsePositivePoints) / float(totalAlgorithmSegmentationPoints) * 100
+    falsePositiveOutput.setText(falsePositiveValue)
 
+    # Compute / set false negative metric
+    falseNegativeValue = (1 - float(pointsWithinRequiredRegion) / float(scanlinesWithSegmentation)) * 100
+    falseNegativeOutput.setText(falseNegativeValue)
+    print("truePositiveOutput: {}\nfalsePositiveOutput: {}\nfalseNegativeOutput: {}".format(truePositiveValue, falsePositiveValue, falseNegativeValue))
 
 class UltrasoundTransducerGeometry:
   def __init__(self, configFile, inputVolume):
@@ -732,9 +751,9 @@ class USGeometryTest(ScriptedLoadableModuleTest):
     """Run as few or as many tests as needed here.
     """
     self.setUp()
-    self.test_USGeometry1()
+    self.test_USGeometry_CreateScanlines()
 
-  def test_USGeometry1(self):
+  def test_USGeometry_CreateScanlines(self):
     """ Ideally you should have several levels of tests.  At the lowest level
     tests should exercise the functionality of the logic with different inputs
     (both valid and invalid).  At higher levels your tests should emulate the
@@ -746,15 +765,18 @@ class USGeometryTest(ScriptedLoadableModuleTest):
     your test should break so they know that the feature is needed.
     """
 
-    self.delayDisplay("Starting the test")
-    #
-    # first, get some data
-    #
+    self.delayDisplay("Starting CreateScanlines test")
+
+    # Setup testing data
     import urllib
+    xmlFileName = 'SpineUltrasound-Lumbar-C5_config.xml'
     downloads = (
-        ('http://slicer.kitware.com/midas3/download?items=5767', 'FA.nrrd', slicer.util.loadVolume),
+        ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/SpineUltrasound-Lumbar-C5-Trimmed.mha', 'SpineUltrasound-Lumbar-C5-Trimmed.mha', slicer.util.loadLabelVolume),
+        ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/SpineUltrasound-Lumbar-C5_config.xml', xmlFileName, None),
+        ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/GroundTruth/SpineUltrasound-Lumbar-C5_Scanline_GroundTruth.mha', 'Curvilinear_Scanline_GroundTruth.mha', slicer.util.loadLabelVolume)
         )
 
+    # Load testing data
     for url,name,loader in downloads:
       filePath = slicer.app.temporaryPath + '/' + name
       if not os.path.exists(filePath) or os.stat(filePath).st_size == 0:
@@ -765,7 +787,35 @@ class USGeometryTest(ScriptedLoadableModuleTest):
         loader(filePath)
     self.delayDisplay('Finished with download and loading')
 
-    volumeNode = slicer.util.getNode(pattern="FA")
-    logic = USGeometryLogic()
-    self.assertIsNotNone( logic.hasImageData(volumeNode) )
-    self.delayDisplay('Test passed!')
+    volumeNode = slicer.util.getNode(pattern="SpineUltrasound-Lumbar-C5-Trimmed")
+    groundTruthNode = slicer.util.getNode(pattern="Curvilinear_Scanline_GroundTruth")
+    logic = USGeometryLogic(slicer.app.temporaryPath+'/'+xmlFileName, volumeNode)
+    scanlineNode = slicer.vtkMRMLLabelMapVolumeNode()
+    scanlineNode.SetName("Scanline_Test")
+    slicer.mrmlScene.AddNode(scanlineNode)
+    scanlineDisplayNode = slicer.vtkMRMLLabelMapVolumeDisplayNode()
+    colorNode = slicer.util.getNode('GenericAnatomyColors')
+    scanlineDisplayNode.SetAndObserveColorNodeID(colorNode.GetID())
+    slicer.mrmlScene.AddNode(scanlineDisplayNode)
+    scanlineNode.AddAndObserveDisplayNodeID(scanlineDisplayNode.GetID())
+    self.delayDisplay("Running createScanlines...")
+    logic.createScanlines(scanlineNode)
+
+    subtractFilter = vtk.vtkImageMathematics()
+    subtractFilter.SetOperationToSubtract()
+    subtractFilter.SetInput1Data(groundTruthNode.GetImageData())
+    subtractFilter.SetInput2Data(scanlineNode.GetImageData())
+    subtractFilter.Update()
+
+    histogramFilter = vtk.vtkImageAccumulate()
+    histogramFilter.SetComponentSpacing([1,0,0])
+    histogramFilter.SetInputData(subtractFilter.GetOutput())
+    histogramFilter.Update()
+
+    maxValue = histogramFilter.GetMax() # Should be zero if generated scanlines == groundtruth
+
+    if (maxValue[0] == 0):
+      self.delayDisplay('Scanline test passed!')
+    else:
+      self.delayDisplay('Scanline test failed!')
+    self.delayDisplay("Finished running createScanlines")
