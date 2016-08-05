@@ -752,6 +752,7 @@ class USGeometryTest(ScriptedLoadableModuleTest):
     """
     self.setUp()
     self.test_USGeometry_CreateScanlines()
+    self.test_USGeometry_SumManualSegmentations()
 
   def test_USGeometry_CreateScanlines(self):
     """ Ideally you should have several levels of tests.  At the lowest level
@@ -819,3 +820,65 @@ class USGeometryTest(ScriptedLoadableModuleTest):
     else:
       self.delayDisplay('Scanline test failed!')
     self.delayDisplay("Finished running createScanlines")
+
+  def test_USGeometry_SumManualSegmentations(self):
+    self.delayDisplay("Starting SumManualSegmentations test")
+
+    import urllib
+    xmlFileName = 'SpineUltrasound-Lumbar-C5_config.xml'
+
+    downloads = (
+      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/SpineUltrasound-Lumbar-C5-Trimmed.mha', 'SpineUltrasound-Lumbar-C5-Trimmed.mha', slicer.util.loadLabelVolume),
+      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/SpineUltrasound-Lumbar-C5_config.xml', xmlFileName, None),
+      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg1.mha', 'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg1.mha', slicer.util.loadLabelVolume),
+      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg2.mha', 'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg2.mha', slicer.util.loadLabelVolume),
+      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg3.mha', 'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg3.mha', slicer.util.loadLabelVolume),
+      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/GroundTruth/SummedManualSegmentations_GroundTruth.mha', 'SummedManualSegmentations_GroundTruth.mha', slicer.util.loadLabelVolume)
+      )
+
+    for url,name,loader in downloads:
+      filePath = slicer.app.temporaryPath + '/' + name
+      if not os.path.exists(filePath) or os.stat(filePath).st_size == 0:
+        directoryName = os.path.dirname(filePath)
+        if not os.path.exists(directoryName):
+          os.makedirs(directoryName)
+        logging.info('Requesting download %s from %s...\n' % (name,url))
+        urllib.urlretrieve(url, filePath)
+      if loader:
+        logging.info('Loading %s...' % (name,))
+        loader(filePath)
+    self.delayDisplay('Finished with downloading and loading')
+
+    volumeNode = slicer.util.getNode(pattern="SpineUltrasound-Lumbar-C5-Trimmed")
+    groundTruthNode = slicer.util.getNode(pattern="SummedManualSegmentations_GroundTruth")
+    logic = USGeometryLogic(slicer.app.temporaryPath+'/'+xmlFileName, volumeNode)
+    summedManualSegNode = slicer.vtkMRMLLabelMapVolumeNode()
+    summedManualSegNode.SetName("SummedManualSegmentations_Test")
+    slicer.mrmlScene.AddNode(summedManualSegNode)
+    summedManualSegDisplayNode = slicer.vtkMRMLLabelMapVolumeDisplayNode()
+    colorNode = slicer.util.getNode('GenericAnatomyColors')
+    summedManualSegDisplayNode.SetAndObserveColorNodeID(colorNode.GetID())
+    slicer.mrmlScene.AddNode(summedManualSegDisplayNode)
+    summedManualSegNode.AddAndObserveDisplayNodeID(summedManualSegDisplayNode.GetID())
+
+    self.delayDisplay("Running sumManualSegmentations...")
+    logic.sumManualSegmentations(slicer.app.temporaryPath+'/TestManualSegmentations', summedManualSegNode)
+
+    subtractFilter = vtk.vtkImageMathematics()
+    subtractFilter.SetOperationToSubtract()
+    subtractFilter.SetInput1Data(groundTruthNode.GetImageData())
+    subtractFilter.SetInput2Data(summedManualSegNode.GetImageData())
+    subtractFilter.Update()
+
+    histogramFilter = vtk.vtkImageAccumulate()
+    histogramFilter.SetComponentSpacing([1,0,0])
+    histogramFilter.SetInputData(subtractFilter.GetOutput())
+    histogramFilter.Update()
+
+    maxValue = histogramFilter.GetMax()
+
+    if (maxValue[0] == 0):
+      self.delayDisplay('Summed manual segmentations test passed!')
+    else:
+      self.delayDisplay('Summed manual segmentations test failed!')
+    self.delayDisplay("Finished running sumManualSegmentations..")
