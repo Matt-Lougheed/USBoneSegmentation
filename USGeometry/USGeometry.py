@@ -754,6 +754,27 @@ class USGeometryTest(ScriptedLoadableModuleTest):
     self.test_USGeometry_CreateScanlines()
     self.test_USGeometry_SumManualSegmentations()
 
+  def compareVolumes(self, volume1, volume2):
+    subtractFilter = vtk.vtkImageMathematics()
+    subtractFilter.SetOperationToSubtract()
+    subtractFilter.SetInput1Data(volume1.GetImageData())
+    subtractFilter.SetInput2Data(volume2.GetImageData())
+    subtractFilter.Update()
+
+    histogramFilter = vtk.vtkImageAccumulate()
+    histogramFilter.SetComponentSpacing([1,0,0])
+    histogramFilter.SetInputData(subtractFilter.GetOutput())
+    histogramFilter.Update()
+
+    # Both should be zero if generated scanlines == groundtruth
+    maxValue = histogramFilter.GetMax()
+    minValue = histogramFilter.GetMin()
+
+    if (maxValue[0] == 0 and minValue[0] == 0):
+      return True
+    else:
+      return False
+
   def test_USGeometry_CreateScanlines(self):
     """ Ideally you should have several levels of tests.  At the lowest level
     tests should exercise the functionality of the logic with different inputs
@@ -802,24 +823,11 @@ class USGeometryTest(ScriptedLoadableModuleTest):
     self.delayDisplay("Running createScanlines...")
     logic.createScanlines(scanlineNode)
 
-    subtractFilter = vtk.vtkImageMathematics()
-    subtractFilter.SetOperationToSubtract()
-    subtractFilter.SetInput1Data(groundTruthNode.GetImageData())
-    subtractFilter.SetInput2Data(scanlineNode.GetImageData())
-    subtractFilter.Update()
-
-    histogramFilter = vtk.vtkImageAccumulate()
-    histogramFilter.SetComponentSpacing([1,0,0])
-    histogramFilter.SetInputData(subtractFilter.GetOutput())
-    histogramFilter.Update()
-
-    maxValue = histogramFilter.GetMax() # Should be zero if generated scanlines == groundtruth
-
-    if (maxValue[0] == 0):
+    volumeEqualityCheck = self.compareVolumes(groundTruthNode, scanlineNode)
+    if volumeEqualityCheck == True:
       self.delayDisplay('Scanline test passed!')
     else:
       self.delayDisplay('Scanline test failed!')
-    self.delayDisplay("Finished running createScanlines")
 
   def test_USGeometry_SumManualSegmentations(self):
     self.delayDisplay("Starting SumManualSegmentations test")
@@ -864,21 +872,8 @@ class USGeometryTest(ScriptedLoadableModuleTest):
     self.delayDisplay("Running sumManualSegmentations...")
     logic.sumManualSegmentations(slicer.app.temporaryPath+'/TestManualSegmentations', summedManualSegNode)
 
-    subtractFilter = vtk.vtkImageMathematics()
-    subtractFilter.SetOperationToSubtract()
-    subtractFilter.SetInput1Data(groundTruthNode.GetImageData())
-    subtractFilter.SetInput2Data(summedManualSegNode.GetImageData())
-    subtractFilter.Update()
-
-    histogramFilter = vtk.vtkImageAccumulate()
-    histogramFilter.SetComponentSpacing([1,0,0])
-    histogramFilter.SetInputData(subtractFilter.GetOutput())
-    histogramFilter.Update()
-
-    maxValue = histogramFilter.GetMax()
-
-    if (maxValue[0] == 0):
-      self.delayDisplay('Summed manual segmentations test passed!')
+    volumeEqualityCheck = self.compareVolumes(groundTruthNode, summedManualSegNode)
+    if volumeEqualityCheck == True:
+      self.delayDisplay("Summed manual segmentations test passed!")
     else:
-      self.delayDisplay('Summed manual segmentations test failed!')
-    self.delayDisplay("Finished running sumManualSegmentations..")
+      self.delayDisplay("Summed manual segmentations test failed!")
