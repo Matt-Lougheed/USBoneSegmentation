@@ -122,7 +122,7 @@ class USGeometryWidget(ScriptedLoadableModuleWidget):
     inputsFormLayout.addWidget(self.pathsGroupBox)
 
     #
-    # False negative value
+    # False negative distance value
     #
     self.falseNegativeDistance = qt.QSpinBox()
     self.falseNegativeDistance.setMinimum(0)
@@ -371,22 +371,51 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     self.inputVolume.GetIJKToRASMatrix(self.ijkToRas)
     self.scanlines = []
     from xml.dom import minidom
+    # Make sure the specified configuration file exists
+    if not os.path.exists(configFile):
+      errorMessage = "Configuration file doesn't exist."
+      slicer.util.errorDisplay(errorMessage)
+      raise ValueError(errorMessage)
     parser = minidom.parse(configFile)
     scanConversionElement = parser.getElementsByTagName("ScanConversion")
+    # Check that that 1 ScanConversion element exists
     if (len(scanConversionElement) < 1):
-      slicer.util.errorDisplay("Could not find ScanConversion element in configuration file!")
-      return False
+      errorMessage = "Could not find ScanConversion element in configuration file!"
+      slicer.util.errorDisplay(errorMessage)
+      raise ValueError(errorMessage)
     elif (len(scanConversionElement) > 1):
-      slicer.util.errorDisplay("Found multiple ScanConversion elements in configuration file!")
-      return False
+      errorMessage = "Found multiple ScanConversion elements in configuration file!"
+      slicer.util.errorDisplay(errorMessage)
+      raise ValueError(errorMessage)
 
     scanConversionElement = scanConversionElement[0]
 
     # Values common to both linear and curvilinear
-    self.transducerGeometry = scanConversionElement.attributes['TransducerGeometry'].value
+    self.transducerGeometry = (scanConversionElement.attributes['TransducerGeometry'].value).upper()
+    # Verify proper transducer geometry
+    if (self.transducerGeometry != "CURVILINEAR" and self.transducerGeometry != "LINEAR"):
+      errorMessage = "TransducerGeometry must be either CURVILINEAR or LINEAR"
+      slicer.util.errorDisplay(errorMessage)
+      raise ValueError(errorMessage)
+    self.outputImageSizePixel = scanConversionElement.attributes['OutputImageSizePixel'].value
+    self.outputImageSizePixel = map(int, self.outputImageSizePixel.split(" "))
+    volumeDimensions = self.inputVolume.GetImageData().GetDimensions()
+    # Check that the corresponding input volume has same image slice dimensions as
+    # specified in the configuration file
+    if (self.outputImageSizePixel[0] != volumeDimensions[0]
+        or self.outputImageSizePixel[1] != volumeDimensions[1]):
+      errorMessage = "Input volume size does not correspond to size specified in configuration file.\n " \
+                     "Input volume slice: [{} {}]\n" \
+                     "Configuration file slice: [{} {}]".format(volumeDimensions[0], volumeDimensions[1], self.outputImageSizePixel[0], self.outputImageSizePixel[1])
+      slicer.util.errorDisplay(errorMessage)
+      raise ValueError(errorMessage)
     self.transducerCenterPixel = scanConversionElement.attributes['TransducerCenterPixel'].value
     self.transducerCenterPixel = map(int, self.transducerCenterPixel.split(" "))
     self.numberOfScanlines = int(scanConversionElement.attributes['NumberOfScanLines'].value)
+    if (self.numberOfScanlines < 0):
+      errorMessage = "NumberOfScanLines: {} cannot be less than 0".format(self.numberOfScanlines)
+      slicer.util.errorDisplay(errorMessage)
+      raise ValueError(errorMessage)
     self.outputImageSpacing = scanConversionElement.attributes['OutputImageSpacingMmPerPixel'].value
     self.outputImageSpacing = map(float, self.outputImageSpacing.split(" "))
     self.numberOfSamplesPerScanline = int(scanConversionElement.attributes['NumberOfSamplesPerScanLine'].value)
@@ -404,10 +433,10 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     elif (self.transducerGeometry == "LINEAR"):
       self.transducerWidthMm = float(scanConversionElement.attributes['TransducerWidthMm'].value)
       self.imagingDepthMm = float(scanConversionElement.attributes['ImagingDepthMm'].value)
-      self.imageWidthPixel = self.transducerWidthMm / float(self.outputImageSpacing[0])
-      self.topLeftPixel = [self.transducerCenterPixel[0] - 0.5 * float(self.imageWidthPixel), self.transducerCenterPixel[1]]
-      self.scanlineSpacingPixels = self.imageWidthPixel / float(self.numberOfScanlines)
-      self.scanlineLengthPixels = self.imagingDepthMm / self.outputImageSpacing[1]
+      self.imageWidthPixel = int(self.transducerWidthMm / self.outputImageSpacing[0])
+      self.topLeftPixel = [int(self.transducerCenterPixel[0] - 0.5 * self.imageWidthPixel), self.transducerCenterPixel[1]]
+      self.scanlineSpacingPixels = float(self.imageWidthPixel) / (self.numberOfScanlines - 1) # There are (numberOfScanlines - 1) spaces between first and last scanline
+      self.scanlineLengthPixels = int(self.imagingDepthMm / self.outputImageSpacing[1])
 
     # Create the scanlines
     for i in range(self.numberOfScanlines):
@@ -431,7 +460,8 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
       # Compute the ending point
       endScanlineX = self.circleCenter[0] + math.sin(angleRadians) * self.radiusStopMm / self.outputImageSpacing[0]
       endScanlineY = self.circleCenter[1] + math.cos(angleRadians) * self.radiusStopMm / self.outputImageSpacing[1]
-      # Compute linear xy values
+
+    # Compute linear xy values
     elif (self.transducerGeometry == "LINEAR"):
       # Compute the starting point
       startScanlineX = self.topLeftPixel[0] + scanline * self.scanlineSpacingPixels
@@ -443,6 +473,25 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     else:
       # ERROR: should not reach here
       print("Error in scanlineEndPoints")
+
+    # Verify acceptable starting point for scanline
+    if (startScanlineX < 0 or startScanlineX > self.outputImageSizePixel[0]-1):
+      errorMessage = "Scanline starting point X value: {} out of bounds!".format(startScanlineX)
+      slicer.util.errorDisplay(errorMessage)
+      raise ValueError(errorMessage)
+    if (startScanlineY < 0 or startScanlineY > self.outputImageSizePixel[1]-1):
+      errorMessage = "Scanline starting point Y value: {} out of bounds!".format(startScanlineY)
+      slicer.util.errorDisplay(errorMessage)
+      raise ValueError(errorMessage)
+    # Verify acceptable ending point for scanline
+    if (endScanlineX < 0 or endScanlineX > self.outputImageSizePixel[0]-1):
+      errorMessage = "Scanline ending point X value: {} out of bounds!".format(endScanlineX)
+      slicer.util.errorDisplay(errorMessage)
+      raise ValueError(errorMessage)
+    if (endScanlineY < 0 or endScanlineY > self.outputImageSizePixel[1]-1):
+      errorMessage = "Scanline ending point Y value: {} out of bounds!".format(endScanlineY)
+      slicer.util.errorDisplay(errorMessage)
+      raise ValueError(errorMessage)
 
     # Combine XY values and return
     startScanline = [startScanlineX, startScanlineY]
@@ -499,7 +548,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     drawFilter.SetDrawColor(1) # Color for scanlines
     # Draw each scanline
     for i in range(self.numberOfScanlines):
-      drawFilter.FillTube(int(self.scanlines[i].startPoint[0]),int(self.scanlines[i].startPoint[1]),int(self.scanlines[i].endPoint[0]),int(self.scanlines[i].endPoint[1]),1)
+      drawFilter.FillTube(int(self.scanlines[i].startPoint[0]),int(self.scanlines[i].startPoint[1]),int(self.scanlines[i].endPoint[0]),int(self.scanlines[i].endPoint[1]),0.5)
     drawFilter.Update()
 
     # Copy scanline slice to match the Z-dimension of input US volume
@@ -527,7 +576,7 @@ class USGeometryLogic(ScriptedLoadableModuleLogic):
     outputSegmentation.SetIJKToRASMatrix(self.ijkToRas)
     pixels = slicer.util.array(outputSegmentation.GetName())
     pixels.fill(0) # Zero out the output segmentation label map
-    
+
     # Values for metric computations
     totalAlgorithmSegmentationPoints = 0
     pointsWithinAcceptableRegion = 0
@@ -792,10 +841,11 @@ class USGeometryTest(ScriptedLoadableModuleTest):
     # Setup testing data
     import urllib
     xmlFileName = 'SpineUltrasound-Lumbar-C5_config.xml'
+    testDataPath = 'https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/'
     downloads = (
-        ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/SpineUltrasound-Lumbar-C5-Trimmed.mha', 'SpineUltrasound-Lumbar-C5-Trimmed.mha', slicer.util.loadLabelVolume),
-        ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/SpineUltrasound-Lumbar-C5_config.xml', xmlFileName, None),
-        ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/GroundTruth/SpineUltrasound-Lumbar-C5_Scanline_GroundTruth.mha', 'Curvilinear_Scanline_GroundTruth.mha', slicer.util.loadLabelVolume)
+        (testDataPath+'SpineUltrasound-Lumbar-C5-Trimmed.mha', 'SpineUltrasound-Lumbar-C5-Trimmed.mha', slicer.util.loadLabelVolume),
+        (testDataPath+'SpineUltrasound-Lumbar-C5_config.xml', xmlFileName, None),
+        (testDataPath+'GroundTruth/SpineUltrasound-Lumbar-C5_Scanline_GroundTruth.mha', 'Curvilinear_Scanline_GroundTruth.mha', slicer.util.loadLabelVolume)
         )
 
     # Load testing data
@@ -834,14 +884,14 @@ class USGeometryTest(ScriptedLoadableModuleTest):
 
     import urllib
     xmlFileName = 'SpineUltrasound-Lumbar-C5_config.xml'
-
+    testDataPath = 'https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/'
     downloads = (
-      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/SpineUltrasound-Lumbar-C5-Trimmed.mha', 'SpineUltrasound-Lumbar-C5-Trimmed.mha', slicer.util.loadLabelVolume),
-      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/SpineUltrasound-Lumbar-C5_config.xml', xmlFileName, None),
-      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg1.mha', 'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg1.mha', slicer.util.loadLabelVolume),
-      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg2.mha', 'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg2.mha', slicer.util.loadLabelVolume),
-      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg3.mha', 'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg3.mha', slicer.util.loadLabelVolume),
-      ('https://raw.githubusercontent.com/Mattel/USBoneSegmentation/master/USGeometry/Testing/Data/Curvilinear/GroundTruth/SummedManualSegmentations_GroundTruth.mha', 'SummedManualSegmentations_GroundTruth.mha', slicer.util.loadLabelVolume)
+      (testDataPath+'SpineUltrasound-Lumbar-C5-Trimmed.mha', 'SpineUltrasound-Lumbar-C5-Trimmed.mha', slicer.util.loadLabelVolume),
+      (testDataPath+'SpineUltrasound-Lumbar-C5_config.xml', xmlFileName, None),
+      (testDataPath+'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg1.mha', 'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg1.mha', slicer.util.loadLabelVolume),
+      (testDataPath+'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg2.mha', 'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg2.mha', slicer.util.loadLabelVolume),
+      (testDataPath+'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg3.mha', 'TestManualSegmentations/SpineUltrasound-Lumbar-C5-TestSeg3.mha', slicer.util.loadLabelVolume),
+      (testDataPath+'GroundTruth/SummedManualSegmentations_GroundTruth.mha','SummedManualSegmentations_GroundTruth.mha', slicer.util.loadLabelVolume)
       )
 
     for url,name,loader in downloads:
